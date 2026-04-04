@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Contract Data Importer — Backend (Railway)
+Contract Data Importer â Backend (Railway)
 Love Andaman
 """
 
@@ -15,20 +15,20 @@ from io import BytesIO
 
 app = Flask(__name__)
 
-# CORS — อนุญาต frontend Vercel เรียก API ได้
+# CORS â à¸­à¸à¸¸à¸à¸²à¸ frontend Vercel à¹à¸£à¸µà¸¢à¸ API à¹à¸à¹
 CORS(app, origins="*")
 
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1KWqJVYfoaRg3DwslW2zSQmPgScPbE9Z-0v-Ijwtdpms")
 SHEET_GID = int(os.environ.get("SHEET_GID", "384942453"))
 
 
-# ─── Health Check ─────────────────────────────────────────────────────────────
+# âââ Health Check âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 @app.route("/")
 def health():
     return jsonify({
         "status": "ok",
-        "service": "Contract Importer API — Love Andaman",
+        "service": "Contract Importer API â Love Andaman",
         "has_api_key": bool(os.environ.get("ANTHROPIC_API_KEY")),
         "has_credentials": bool(os.environ.get("GOOGLE_CREDENTIALS_JSON"))
     })
@@ -43,12 +43,12 @@ def status():
     })
 
 
-# ─── Extract ──────────────────────────────────────────────────────────────────
+# âââ Extract ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 @app.route("/api/extract", methods=["POST"])
 def extract():
     if "pdf" not in request.files:
-        return jsonify({"error": "ไม่พบไฟล์ PDF"}), 400
+        return jsonify({"error": "à¹à¸¡à¹à¸à¸à¹à¸à¸¥à¹ PDF"}), 400
 
     pdf_file = request.files["pdf"]
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -92,30 +92,31 @@ def extract_with_claude(images, api_key):
                 "data": img_data
             }
         })
+    content.append({"type": "text", "text": """
 
 
-ไปนี้และตอบกลับเป็น JSON เท่านั้น ไม่มีข้อความอื่น:
+à¹à¸à¸à¸µà¹à¹à¸¥à¸°à¸à¸­à¸à¸à¸¥à¸±à¸à¹à¸à¹à¸ JSON à¹à¸à¹à¸²à¸à¸±à¹à¸ à¹à¸¡à¹à¸¡à¸µà¸à¹à¸­à¸à¸§à¸²à¸¡à¸­à¸·à¹à¸:
 
 {
-  "company_name": "ชื่อบริษัทผู้ให้บริการทัวร์ (operator/supplier ไม่ใช่ travel agent)",
+  "company_name": "à¸à¸·à¹à¸­à¸à¸£à¸´à¸©à¸±à¸à¸à¸¹à¹à¹à¸«à¹à¸à¸£à¸´à¸à¸²à¸£à¸à¸±à¸§à¸£à¹ (operator/supplier à¹à¸¡à¹à¹à¸à¹ travel agent)",
   "items": [
     {
-      "product_name": "ชื่อโปรแกรมทัวร์/สินค้า",
+      "product_name": "à¸à¸·à¹à¸­à¹à¸à¸£à¹à¸à¸£à¸¡à¸à¸±à¸§à¸£à¹/à¸ªà¸´à¸à¸à¹à¸²",
       "net_price": 1000,
       "cost": 1000,
-      "notes": "หมายเหตุ เช่น Adult/Child, จำนวนคน, หมวดหมู่"
+      "notes": "à¸«à¸¡à¸²à¸¢à¹à¸«à¸à¸¸ à¹à¸à¹à¸ Adult/Child, à¸à¸³à¸à¸§à¸à¸à¸, à¸«à¸¡à¸§à¸à¸«à¸¡à¸¹à¹"
     }
   ]
 }
 
-กฎการดึงข้อมูล:
-- company_name: บริษัทผู้ให้บริการทัวร์ (ไม่ใช่ travel agent หรือ agent ที่ส่ง contract มา)
-- product_name: ชื่อทัวร์/โปรแกรมแต่ละรายการอย่างชัดเจน
-- net_price: ราคา NET ที่ agent จ่าย (ตัวเลข THB อย่างเดียว ไม่มีหน่วย)
-- cost: เหมือน net_price หากไม่มี cost column แยกต่างหาก
-- รวมทุกสินค้า/โปรแกรมที่มีในเอกสาร (Adult, Child, Infant, ต่างจำนวนคน)
-- หากราคาแตกต่างตามจำนวนคน ให้แยกเป็น items พร้อมระบุใน notes
-- ตอบกลับเป็น JSON อย่างเดียว ไม่มี markdown code block"""
+à¸à¸à¸à¸²à¸£à¸à¸¶à¸à¸à¹à¸­à¸¡à¸¹à¸¥:
+- company_name: à¸à¸£à¸´à¸©à¸±à¸à¸à¸¹à¹à¹à¸«à¹à¸à¸£à¸´à¸à¸²à¸£à¸à¸±à¸§à¸£à¹ (à¹à¸¡à¹à¹à¸à¹ travel agent à¸«à¸£à¸·à¸­ agent à¸à¸µà¹à¸ªà¹à¸ contract à¸¡à¸²)
+- product_name: à¸à¸·à¹à¸­à¸à¸±à¸§à¸£à¹/à¹à¸à¸£à¹à¸à¸£à¸¡à¹à¸à¹à¸¥à¸°à¸£à¸²à¸¢à¸à¸²à¸£à¸­à¸¢à¹à¸²à¸à¸à¸±à¸à¹à¸à¸
+- net_price: à¸£à¸²à¸à¸² NET à¸à¸µà¹ agent à¸à¹à¸²à¸¢ (à¸à¸±à¸§à¹à¸¥à¸ THB à¸­à¸¢à¹à¸²à¸à¹à¸à¸µà¸¢à¸§ à¹à¸¡à¹à¸¡à¸µà¸«à¸à¹à¸§à¸¢)
+- cost: à¹à¸«à¸¡à¸·à¸­à¸ net_price à¸«à¸²à¸à¹à¸¡à¹à¸¡à¸µ cost column à¹à¸¢à¸à¸à¹à¸²à¸à¸«à¸²à¸
+- à¸£à¸§à¸¡à¸à¸¸à¸à¸ªà¸´à¸à¸à¹à¸²/à¹à¸à¸£à¹à¸à¸£à¸¡à¸à¸µà¹à¸¡à¸µà¹à¸à¹à¸­à¸à¸ªà¸²à¸£ (Adult, Child, Infant, à¸à¹à¸²à¸à¸à¸³à¸à¸§à¸à¸à¸)
+- à¸«à¸²à¸à¸£à¸²à¸à¸²à¹à¸à¸à¸à¹à¸²à¸à¸à¸²à¸¡à¸à¸³à¸à¸§à¸à¸à¸ à¹à¸«à¹à¹à¸¢à¸à¹à¸à¹à¸ items à¸à¸£à¹à¸­à¸¡à¸£à¸°à¸à¸¸à¹à¸ notes
+- à¸à¸­à¸à¸à¸¥à¸±à¸à¹à¸à¹à¸ JSON à¸­à¸¢à¹à¸²à¸à¹à¸à¸µà¸¢à¸§ à¹à¸¡à¹à¸¡à¸µ markdown code block"""
     })
 
     response = client.messages.create(
@@ -134,7 +135,7 @@ def extract_with_claude(images, api_key):
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             return json.loads(match.group())
-        raise ValueError(f"ไม่สามารถแปลง JSON: {text[:300]}")
+        raise ValueError(f"à¹à¸¡à¹à¸ªà¸²à¸¡à¸²à¸£à¸à¹à¸à¸¥à¸ JSON: {text[:300]}")
 
 
 def extract_with_ocr(images):
@@ -144,7 +145,7 @@ def extract_with_ocr(images):
         return {
             "company_name": "",
             "items": [],
-            "warning": "⚠️ ไม่พบ ANTHROPIC_API_KEY — กรุณาตั้งค่า Environment Variable บน Railway"
+            "warning": "â ï¸ à¹à¸¡à¹à¸à¸ ANTHROPIC_API_KEY â à¸à¸£à¸¸à¸à¸²à¸à¸±à¹à¸à¸à¹à¸² Environment Variable à¸à¸ Railway"
         }
 
     full_text = ""
@@ -152,7 +153,7 @@ def extract_with_ocr(images):
         full_text += pytesseract.image_to_string(img, lang="eng") + "\n"
 
     company = ""
-    for pattern in [r"Operator name[:\s]+([^\n\r]+)", r"บริษัท[:\s]+([^\n\r]+)"]:
+    for pattern in [r"Operator name[:\s]+([^\n\r]+)", r"à¸à¸£à¸´à¸©à¸±à¸[:\s]+([^\n\r]+)"]:
         m = re.search(pattern, full_text, re.IGNORECASE)
         if m:
             company = m.group(1).strip()
@@ -173,11 +174,11 @@ def extract_with_ocr(images):
     return {
         "company_name": company,
         "items": items[:30],
-        "warning": "⚠️ ใช้ OCR ธรรมดา กรุณาตรวจสอบข้อมูลก่อนนำเข้า"
+        "warning": "â ï¸ à¹à¸à¹ OCR à¸à¸£à¸£à¸¡à¸à¸² à¸à¸£à¸¸à¸à¸²à¸à¸£à¸§à¸à¸ªà¸­à¸à¸à¹à¸­à¸¡à¸¹à¸¥à¸à¹à¸­à¸à¸à¸³à¹à¸à¹à¸²"
     }
 
 
-# ─── Import to Sheets ─────────────────────────────────────────────────────────
+# âââ Import to Sheets âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 @app.route("/api/import-sheets", methods=["POST"])
 def import_sheets():
@@ -187,14 +188,14 @@ def import_sheets():
     spreadsheet_id = data.get("spreadsheet_id", SPREADSHEET_ID)
 
     if not items:
-        return jsonify({"error": "ไม่มีข้อมูลที่จะนำเข้า"}), 400
+        return jsonify({"error": "à¹à¸¡à¹à¸¡à¸µà¸à¹à¸­à¸¡à¸¹à¸¥à¸à¸µà¹à¸à¸°à¸à¸³à¹à¸à¹à¸²"}), 400
 
-    # อ่าน credentials จาก Environment Variable
+    # à¸­à¹à¸²à¸ credentials à¸à¸²à¸ Environment Variable
     creds_json_str = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
     if not creds_json_str:
         return jsonify({
-            "error": "ไม่พบ GOOGLE_CREDENTIALS_JSON",
-            "help": "กรุณาตั้งค่า Environment Variable GOOGLE_CREDENTIALS_JSON บน Railway"
+            "error": "à¹à¸¡à¹à¸à¸ GOOGLE_CREDENTIALS_JSON",
+            "help": "à¸à¸£à¸¸à¸à¸²à¸à¸±à¹à¸à¸à¹à¸² Environment Variable GOOGLE_CREDENTIALS_JSON à¸à¸ Railway"
         }), 400
 
     try:
@@ -211,7 +212,7 @@ def import_sheets():
         gc = gspread.authorize(creds)
         sh = gc.open_by_key(spreadsheet_id)
 
-        # หา worksheet ตาม GID
+        # à¸«à¸² worksheet à¸à¸²à¸¡ GID
         ws = None
         for worksheet in sh.worksheets():
             if worksheet.id == SHEET_GID:
@@ -236,14 +237,14 @@ def import_sheets():
         return jsonify({
             "success": True,
             "rows_added": len(rows),
-            "message": f"นำเข้าข้อมูลสำเร็จ {len(rows)} รายการ"
+            "message": f"à¸à¸³à¹à¸à¹à¸²à¸à¹à¸­à¸¡à¸¹à¸¥à¸ªà¸³à¹à¸£à¹à¸ {len(rows)} à¸£à¸²à¸¢à¸à¸²à¸£"
         })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-# ─── Start ────────────────────────────────────────────────────────────────────
+# âââ Start ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

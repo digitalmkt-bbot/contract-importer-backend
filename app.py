@@ -26,6 +26,17 @@ def health():
         "has_credentials": bool(os.environ.get("GOOGLE_CREDENTIALS_JSON"))
     })
 
+@app.route("/api/status", methods=["GET"])
+def status():
+    return jsonify({
+        "status": "ok",
+        "service": "Contract Importer API - Love Andaman",
+        "has_api_key": bool(os.environ.get("OPENAI_API_KEY")),
+        "has_credentials": bool(os.environ.get("GOOGLE_CREDENTIALS_JSON"))
+    })
+
+
+
 
 @app.route("/api/extract", methods=["POST"])
 def extract():

@@ -113,7 +113,7 @@ def extract_with_claude(images, api_key):
 - company_name: บริษัทผู้ให้บริการทัวร์ (ไม่ใช่ travel agent หรือ agent ที่ส่ง contract มา)
 - product_name: ชื่อทัวร์/โปรแกรมแต่ละรายการอย่างชัดเจน
 - net_rate: ราคา NET ที่ agent จ่าย (ตัวเลข THB อย่างเดียว ไม่มีหน่วย) — อาจใช้ชื่อในเอกสารว่า "Net Rate", "Net Price", "Agent Rate", "Cost"
-- selling_rate: ราคาขายให้ลูกค้า (ตัวเลข THB) — อาจใช้ชื่อในเอกสารว่า "Selling Rate", "Public Rate", "Rack Rate", "Price", "Adult Rate" (ราคาที่มักอยู่คู่กับ Net Rate) หากไม่มีในเอกสารให้ใส่ 0
+- selling_rate: ราคาขายให้ลูกค้า (ตัวเลข THB) — อาจใช้ชื่อในเอกสารว่า "Selling Rate", "Cost Rate", "Public Rate", "Rack Rate", "Price", "Adult Rate" (ราคาที่มักอยู่คู่กับ Net Rate) หากไม่มีในเอกสารให้ใส่ 0
 - รวมทุกสินค้า/โปรแกรมที่มีในเอกสาร (Adult, Child, Infant, ต่างจำนวนคน)
 - หากราคาแตกต่างตามจำนวนคน ให้แยกเป็น items พร้อมระบุใน notes
 - ตอบกลับเป็น JSON อย่างเดียว ไม่มี markdown code block"""
@@ -228,7 +228,7 @@ def import_sheets():
                 company,
                 item.get("product_name", ""),
                 item.get("net_rate", item.get("net_price", "")),
-                item.get("selling_rate", item.get("public_rate", item.get("cost", ""))),
+                item.get("selling_rate", item.get("cost_rate", item.get("public_rate", item.get("cost", "")))),
                 item.get("notes", "")
             ])
 

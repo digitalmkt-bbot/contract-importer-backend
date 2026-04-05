@@ -169,7 +169,7 @@ def extract_with_ocr(images):
             product = re.sub(r"\s+", " ", product)
             if product and len(product) > 2:
                 net = int(prices[0].replace(",", ""))
-                items.append({"product_name": product, "net_rate": net, "selling_rate": 0, "notes": ""})
+                items.append({"product_name": product, "net_price": net, "cost": net, "notes": ""})
 
     return {
         "company_name": company,
@@ -221,23 +221,43 @@ def import_sheets():
         if ws is None:
             ws = sh.sheet1
 
-        # Append rows
+        # Dedup: build set of existing (company|product_name) keys (rows 5+, cols E-F)
+        existing_keys = set()
+        all_values = ws.get_all_values()
+        for row in all_values[4:]:  # skip header rows 1-4
+            e = row[4].strip() if len(row) > 4 else ""
+            f = row[5].strip() if len(row) > 5 else ""
+            k = (e + "|" + f).lower()
+            if k != "|":
+                existing_keys.add(k)
+
+        # Filter: only add items not already in sheet
         rows = []
+        skipped = []
         for item in items:
-            rows.append([
-                company,
-                item.get("product_name", ""),
-                item.get("net_rate", item.get("net_price", "")),
-                item.get("selling_rate", item.get("cost_rate", item.get("public_rate", item.get("cost", "")))),
-                item.get("notes", "")
-            ])
+            name = item.get("product_name", "")
+            k = (company.strip() + "|" + name.strip()).lower()
+            if k in existing_keys:
+                skipped.append(name)
+            else:
+                rows.append([
+                    company,
+                    name,
+                    item.get("net_rate", item.get("net_price", "")),
+                    item.get("selling_rate", item.get("public_rate", item.get("cost", ""))),
+                    item.get("notes", "")
+                ])
+                existing_keys.add(k)
 
-        ws.append_rows(rows, value_input_option="USER_ENTERED")
+        if rows:
+            ws.append_rows(rows, value_input_option="USER_ENTERED")
 
+        skip_msg = f", ข้ามซ้ำ {len(skipped)} รายการ" if skipped else ""
         return jsonify({
             "success": True,
             "rows_added": len(rows),
-            "message": f"นำเข้าข้อมูลสำเร็จ {len(rows)} รายการ"
+            "rows_skipped": len(skipped),
+            "message": f"นำเข้าข้อมูลสำเร็จ {len(rows)} รายการ{skip_msg}"
         })
 
     except Exception as e:

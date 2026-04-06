@@ -112,7 +112,8 @@ def extract_with_claude(images, api_key):
         "Always respond with valid JSON only — no markdown, no explanations."
     )
 
-    user_prompt = """Extract all pricing data from this tour operator contract/rate sheet image(s).
+    user_prompt = """Extract ALL pricing data from this tour operator contract/rate sheet image(s).
+CRITICAL: You MUST extract EVERY SINGLE ROW that contains a price or rate — do NOT skip, summarize, or truncate any row.
 
 Return ONLY a JSON object in this exact format (no markdown code blocks, no extra text):
 {
@@ -145,12 +146,84 @@ Rules:
     Include as much detail as possible — do NOT omit route or time if they appear anywhere in the row or header.
 - net_rate: agent/net cost price in THB (number only). Look for: Net Rate, Net Price, Agent Rate, Net, Cost
 - selling_rate: retail/public price in THB. Look for: Selling Rate, Public Rate, Rack Rate, Adult Rate, Full Price. Use 0 if not found.
-- Include ALL line items (Adult, Child, Infant, different pax counts as separate items)
-- If prices vary by group size or pax count, list each as a separate item with pax details in notes
+- MUST include ALL line items without exception: Adult, Child, Infant, every pax count variation, every category
+- If prices vary by group size or pax count, each must be a SEPARATE item with pax details in notes
+- If a table header applies to multiple rows below it, repeat the header info in each row's product_name
+- Do NOT stop early — extract until the LAST row of data on the page
 - Return ONLY the JSON object"""
 
+    # Process all pages in batches of 4 to avoid token limits
+    all_items = []
+    company_name = ""
+    page_batches = [images[i:i+4] for i in range(0, len(images), 4)]
+
+    for batch_idx, batch in enumerate(page_batches):
+        content = []
+        for img in batch:
+            buffer = BytesIO()
+            img.save(buffer, format="JPEG", quality=85)
+            img_data = base64.b64encode(buffer.getvalue()).decode()
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{img_data}",
+                    "detail": "high"
+                }
+            })
+        content.append({"type": "text", "text": user_prompt})
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=16000,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": content}
+            ]
+        )
+
+        text = response.choices[0].message.content.strip()
+
+        # Detect refusal
+        refusal_phrases = ["i'm sorry", "i cannot", "i can't", "unable to assist", "can't assist", "cannot assist"]
+        if any(p in text.lower() for p in refusal_phrases) and "{" not in text:
+            continue
+
+        # Strip markdown code fences
+        text = re.sub(r"^```(?:json)?\s*\n?", "", text, flags=re.MULTILINE)
+        text = re.sub(r"\n?```\s*$", "", text, flags=re.MULTILINE).strip()
+
+        try:
+            batch_result = json.loads(text)
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", text, re.DOTALL)
+            if match:
+                try:
+                    batch_result = json.loads(match.group())
+                except Exception:
+                    continue
+            else:
+                continue
+
+        if batch_idx == 0 and not company_name:
+            company_name = batch_result.get("company_name", "")
+        all_items.extend(batch_result.get("items", []))
+
+    # Deduplicate items by product_name + net_rate
+    seen = set()
+    deduped = []
+    for item in all_items:
+        key = (item.get("product_name", ""), str(item.get("net_rate", "")))
+        if key not in seen:
+            seen.add(key)
+            deduped.append(item)
+
+    return {"company_name": company_name, "items": deduped}
+
+
+def _extract_single_batch(client, system_prompt, user_prompt, images):
+    """Legacy single-batch extraction (kept for reference)."""
     content = []
-    for img in images[:4]:
+    for img in images:
         buffer = BytesIO()
         img.save(buffer, format="JPEG", quality=85)
         img_data = base64.b64encode(buffer.getvalue()).decode()
@@ -165,7 +238,7 @@ Rules:
 
     response = client.chat.completions.create(
         model="gpt-4o",
-        max_tokens=4000,
+        max_tokens=16000,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": content}

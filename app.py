@@ -4,7 +4,7 @@ Contract Data Importer — Backend (Railway)
 Love Andaman
 """
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import os
 import json
@@ -13,7 +13,7 @@ import tempfile
 import base64
 from io import BytesIO
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static", static_url_path="")
 
 # CORS — อนุญาต frontend Vercel เรียก API ได้
 CORS(app, origins="*")
@@ -25,7 +25,11 @@ SHEET_GID = int(os.environ.get("SHEET_GID", "384942453"))
 # ─── Health Check ─────────────────────────────────────────────────────────────
 
 @app.route("/")
-def health():
+def index():
+    # Serve frontend UI if it exists, otherwise show API status
+    static_index = os.path.join(app.static_folder or "", "index.html")
+    if os.path.exists(static_index):
+        return send_from_directory(app.static_folder, "index.html")
     return jsonify({
         "status": "ok",
         "service": "Contract Importer API — Love Andaman",
@@ -47,19 +51,33 @@ def status():
 
 @app.route("/api/extract", methods=["POST"])
 def extract():
-    if "pdf" not in request.files:
-        return jsonify({"error": "ไม่พบไฟล์ PDF"}), 400
+    # รับทั้ง "file" (ใหม่) และ "pdf" (เก่า) เพื่อ backward-compatibility
+    uploaded = request.files.get("file") or request.files.get("pdf")
+    if not uploaded:
+        return jsonify({"error": "ไม่พบไฟล์ (ส่งเป็น field ชื่อ 'file')"}), 400
 
-    pdf_file = request.files["pdf"]
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    filename = (uploaded.filename or "").lower()
+    is_pdf = filename.endswith(".pdf") or uploaded.content_type == "application/pdf"
+    is_image = any(filename.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".webp"))
 
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        pdf_file.save(tmp.name)
+    # บันทึก temp file
+    suffix = ".pdf" if is_pdf else os.path.splitext(filename)[1] or ".png"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        uploaded.save(tmp.name)
         tmp_path = tmp.name
 
     try:
-        from pdf2image import convert_from_path
-        images = convert_from_path(tmp_path, dpi=150)
+        from PIL import Image as PILImage
+
+        if is_pdf:
+            from pdf2image import convert_from_path
+            images = convert_from_path(tmp_path, dpi=150)
+        elif is_image:
+            img = PILImage.open(tmp_path).convert("RGB")
+            images = [img]
+        else:
+            return jsonify({"error": "รองรับเฉพาะไฟล์ PDF, PNG, JPG, JPEG, WEBP เท่านั้น"}), 400
 
         if api_key:
             result = extract_with_claude(images, api_key)

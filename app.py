@@ -60,7 +60,7 @@ def status():
 @app.route("/api/extract", methods=["POST"])
 def extract():
     # รับทั้ง "file" (ใหม่) และ "pdf" (เก่า) เพื่อ backward-compatibility
-    uploaded = request.files.get("file") or request.files.get("pdf")
+  2 uploaded = request.files.get("file") or request.files.get("pdf")
     if not uploaded:
         return jsonify({"error": "ไม่พบไฟล์ (ส่งเป็น field ชื่อ 'file')"}), 400
 
@@ -119,7 +119,7 @@ Return ONLY a JSON object in this exact format (no markdown code blocks, no extr
   "company_name": "name of the tour operator / supplier company",
   "items": [
     {
-      "product_name": "tour program or product name",
+      "product_name": "tour program name | route/destination | departure time",
       "net_rate": 1000,
       "selling_rate": 1500,
       "notes": "e.g. Adult, Child, group size, category"
@@ -129,7 +129,14 @@ Return ONLY a JSON object in this exact format (no markdown code blocks, no extr
 
 Rules:
 - company_name: the operator/supplier name (not the travel agent)
-- product_name: each individual tour/activity line item
+- product_name: combine THREE pieces of information separated by " | ":
+    1. Program/product name (e.g. "Phi Phi Island Tour", "Similan Diving", "ATV Adventure")
+    2. Route or destination (e.g. "Phuket → Phi Phi", "Krabi - Railay", "Koh Samui") — omit if not stated
+    3. Departure time or schedule (e.g. "08:00-17:00", "Full Day", "Half Day AM", "07:30 depart") — omit if not stated
+    Example: "Phi Phi Island Tour | Phuket → Phi Phi | 08:00-17:00"
+    Example: "Similan Liveaboard | Khao Lak → Similan | 2D1N"
+    Example: "ATV Adventure | Chalong Circuit" (no time listed)
+    If route and time are both absent, use just the program name.
 - net_rate: agent cost price in THB (number only). Look for labels: Net Rate, Net Price, Agent Rate, Cost
 - selling_rate: retail/public price in THB. Look for: Selling Rate, Public Rate, Rack Rate, Adult Rate. Use 0 if not found.
 - Include ALL line items (Adult, Child, Infant, different pax counts as separate items)
@@ -175,7 +182,7 @@ Rules:
     except json.JSONDecodeError:
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
-            return json.loars(match.group())
+            return json.loads(match.group())
         raise ValueError(f"ไม่สามารถแปลง JSON: {text[:300]}")
 
 

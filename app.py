@@ -33,7 +33,7 @@ def index():
     return jsonify({
         "status": "ok",
         "service": "Contract Importer API — Love Andaman",
-        "has_api_key": bool(os.environ.get("ANTHROPIC_API_KEY")),
+        "has_api_key": bool(os.environ.get("OPENAI_API_KEY")),
         "has_credentials": bool(os.environ.get("GOOGLE_CREDENTIALS_JSON"))
     })
 
@@ -41,7 +41,7 @@ def index():
 @app.route("/api/status")
 def status():
     return jsonify({
-        "has_api_key": bool(os.environ.get("ANTHROPIC_API_KEY")),
+        "has_api_key": bool(os.environ.get("OPENAI_API_KEY")),
         "has_credentials": bool(os.environ.get("GOOGLE_CREDENTIALS_JSON")),
         "spreadsheet_id": SPREADSHEET_ID
     })
@@ -56,7 +56,7 @@ def extract():
     if not uploaded:
         return jsonify({"error": "ไม่พบไฟล์ (ส่งเป็น field ชื่อ 'file')"}), 400
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key = os.environ.get("OPENAI_API_KEY", "")
     filename = (uploaded.filename or "").lower()
     is_pdf = filename.endswith(".pdf") or uploaded.content_type == "application/pdf"
     is_image = any(filename.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".webp"))
@@ -80,7 +80,7 @@ def extract():
             return jsonify({"error": "รองรับเฉพาะไฟล์ PDF, PNG, JPG, JPEG, WEBP เท่านั้น"}), 400
 
         if api_key:
-            result = extract_with_claude(images, api_key)
+            result = extract_with_openai(images, api_key)
         else:
             result = extract_with_ocr(images)
 
@@ -92,28 +92,13 @@ def extract():
         os.unlink(tmp_path)
 
 
-def extract_with_claude(images, api_key):
-    import anthropic
+def extract_with_openai(images, api_key):
+    from openai import OpenAI
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client = OpenAI(api_key=api_key)
     content = []
 
-    for img in images[:4]:
-        buffer = BytesIO()
-        img.save(buffer, format="PNG")
-        img_data = base64.b64encode(buffer.getvalue()).decode()
-        content.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": "image/png",
-                "data": img_data
-            }
-        })
-
-    content.append({
-        "type": "text",
-        "text": """นี่คือ PDF สัญญาราคาบริษัทนำเที่ยว โปรดดึงข้อมูลต่อไปนี้และตอบกลับเป็น JSON เท่านั้น ไม่มีข้อความอื่น:
+    prompt = """นี่คือเอกสารสัญญาราคาบริษัทนำเที่ยว โปรดดึงข้อมูลต่อไปนี้และตอบกลับเป็น JSON เท่านั้น ไม่มีข้อความอื่น:
 
 {
   "company_name": "ชื่อบริษัทผู้ให้บริการทัวร์ (operator/supplier ไม่ใช่ travel agent)",
@@ -131,19 +116,32 @@ def extract_with_claude(images, api_key):
 - company_name: บริษัทผู้ให้บริการทัวร์ (ไม่ใช่ travel agent หรือ agent ที่ส่ง contract มา)
 - product_name: ชื่อทัวร์/โปรแกรมแต่ละรายการอย่างชัดเจน
 - net_rate: ราคา NET ที่ agent จ่าย (ตัวเลข THB อย่างเดียว ไม่มีหน่วย) — อาจใช้ชื่อในเอกสารว่า "Net Rate", "Net Price", "Agent Rate", "Cost"
-- selling_rate: ราคาขายให้ลูกค้า (ตัวเลข THB) — อาจใช้ชื่อในเอกสารว่า "Selling Rate", "Cost Rate", "Public Rate", "Rack Rate", "Price", "Adult Rate" (ราคาที่มักอยู่คู่กับ Net Rate) หากไม่มีในเอกสารให้ใส่ 0
+- selling_rate: ราคาขายให้ลูกค้า (ตัวเลข THB) — อาจใช้ชื่อในเอกสารว่า "Selling Rate", "Cost Rate", "Public Rate", "Rack Rate", "Price", "Adult Rate" หากไม่มีในเอกสารให้ใส่ 0
 - รวมทุกสินค้า/โปรแกรมที่มีในเอกสาร (Adult, Child, Infant, ต่างจำนวนคน)
 - หากราคาแตกต่างตามจำนวนคน ให้แยกเป็น items พร้อมระบุใน notes
 - ตอบกลับเป็น JSON อย่างเดียว ไม่มี markdown code block"""
-    })
 
-    response = client.messages.create(
-        model="claude-opus-4-6",
+    for img in images[:4]:
+        buffer = BytesIO()
+        img.save(buffer, format="PNG")
+        img_data = base64.b64encode(buffer.getvalue()).decode()
+        content.append({
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:image/png;base64,{img_data}",
+                "detail": "high"
+            }
+        })
+
+    content.append({"type": "text", "text": prompt})
+
+    response = client.chat.completions.create(
+        model="gpt-4o",
         max_tokens=4000,
         messages=[{"role": "user", "content": content}]
     )
 
-    text = response.content[0].text.strip()
+    text = response.choices[0].message.content.strip()
     text = re.sub(r"^```(?:json)?\s*\n?", "", text, flags=re.MULTILINE)
     text = re.sub(r"\n?```\s*$", "", text, flags=re.MULTILINE).strip()
 
@@ -163,7 +161,7 @@ def extract_with_ocr(images):
         return {
             "company_name": "",
             "items": [],
-            "warning": "⚠️ ไม่พบ ANTHROPIC_API_KEY — กรุณาตั้งค่า Environment Variable บน Railway"
+            "warning": "⚠️ ไม่พบ OPENAI_API_KEY — กรุณาตั้งค่า Environment Variable บน Railway"
         }
 
     full_text = ""
@@ -208,7 +206,6 @@ def import_sheets():
     if not items:
         return jsonify({"error": "ไม่มีข้อมูลที่จะนำเข้า"}), 400
 
-    # อ่าน credentials จาก Environment Variable
     creds_json_str = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
     if not creds_json_str:
         return jsonify({
@@ -221,7 +218,6 @@ def import_sheets():
         from google.oauth2.service_account import Credentials
 
         creds_info = json.loads(creds_json_str)
-
         scopes = [
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
@@ -230,7 +226,6 @@ def import_sheets():
         gc = gspread.authorize(creds)
         sh = gc.open_by_key(spreadsheet_id)
 
-        # หา worksheet ตาม GID
         ws = None
         for worksheet in sh.worksheets():
             if worksheet.id == SHEET_GID:
@@ -239,17 +234,15 @@ def import_sheets():
         if ws is None:
             ws = sh.sheet1
 
-        # Dedup: build set of existing (company|product_name) keys (rows 5+, cols E-F)
         existing_keys = set()
         all_values = ws.get_all_values()
-        for row in all_values[4:]:  # skip header rows 1-4
+        for row in all_values[4:]:
             e = row[4].strip() if len(row) > 4 else ""
             f = row[5].strip() if len(row) > 5 else ""
             k = (e + "|" + f).lower()
             if k != "|":
                 existing_keys.add(k)
 
-        # Filter: only add items not already in sheet
         rows = []
         skipped = []
         for item in items:

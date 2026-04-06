@@ -1,4 +1,4 @@
-#!/usr/bin/env python3 
+#!/usr/bin/env python3
 """
 Contract Data Importer — Backend (Railway)
 Love Andaman
@@ -164,7 +164,7 @@ Rules:
     # Detect refusal
     refusal_phrases = ["i'm sorry", "i cannot", "i can't", "unable to assist", "can't assist", "cannot assist"]
     if any(p in text.lower() for p in refusal_phrases) and "{" not in text:
-        raise ValueError(f"AI ไม่สามา รธอ่านนได้  กรุณาลองใหม่หรือใช้ไฟล์ PNG/JPG แทน PDF")
+        raise ValueError(f"AI ไม่สามารถอ่านเอกสารนี้ได้ กรุณาลองใหม่หรือใช้ไฟล์ PNG/JPG แทน PDF")
 
     # Strip markdown code fences
     text = re.sub(r"^```(?:json)?\s*\n?", "", text, flags=re.MULTILINE)
@@ -173,9 +173,9 @@ Rules:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        match = re.search(r)\{{.*\}", text, re.DOTALL)
+        match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
-            return json.loads(match.group())
+            return json.loars(match.group())
         raise ValueError(f"ไม่สามารถแปลง JSON: {text[:300]}")
 
 
@@ -186,7 +186,7 @@ def extract_with_ocr(images):
         return {
             "company_name": "",
             "items": [],
-            "warning": "⚠️ ไม่พบ OPENAI_API_KEY —   กรุณาตั้งค่า Environment Variable บน Railway"
+            "warning": "⚠️ ไม่พบ OPENAI_API_KEY — กรุณาตั้งค่า Environment Variable บน Railway"
         }
 
     full_text = ""
@@ -194,7 +194,7 @@ def extract_with_ocr(images):
         full_text += pytesseract.image_to_string(img, lang="eng") + "\n"
 
     company = ""
-    for pattern in [r"Operator name[:\s]+([^\n\r]+)", r"บริษัป[:\s]+([^\n\r]+)"]:
+    for pattern in [r"Operator name[:\s]+([^\n\r]+)", r"บริษัท[:\s]+([^\n\r]+)"]:
         m = re.search(pattern, full_text, re.IGNORECASE)
         if m:
             company = m.group(1).strip()
@@ -207,7 +207,7 @@ def extract_with_ocr(images):
         prices = price_re.findall(line)
         if prices:
             product = price_re.sub("", line).strip(" .,:-")
-            product = re.sub(r)\s+", " ", product)
+            product = re.sub(r"\s+", " ", product)
             if product and len(product) > 2:
                 net = int(prices[0].replace(",", ""))
                 items.append({"product_name": product, "net_price": net, "cost": net, "notes": ""})
@@ -256,7 +256,7 @@ def import_sheets():
         # หา worksheet ตาม GID
         ws = None
         for worksheet in sh.worksheets():
-            if worksheet.id == SHEUT_GID:
+            if worksheet.id == SHEET_GID:
                 ws = worksheet
                 break
         if ws is None:
@@ -298,7 +298,7 @@ def import_sheets():
             "success": True,
             "rows_added": len(rows),
             "rows_skipped": len(skipped),
-            "message": f"นำเข้า ข้อมูลสำเร็จ {len(rows)} รายการ{skip_msg}"
+            "message": f"นำเข้าข้อมูลสำเร็จ {len(rows)} รายการ{skip_msg}"
         })
 
     except Exception as e:

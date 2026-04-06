@@ -152,10 +152,10 @@ Rules:
 - Do NOT stop early — extract until the LAST row of data on the page
 - Return ONLY the JSON object"""
 
-    # Process all pages in batches of 2 to stay within output token limits
+    # Process 1 page per batch — maximum token budget per page for complete extraction
     all_items = []
     company_name = ""
-    page_batches = [images[i:i+2] for i in range(0, len(images), 2)]
+    page_batches = [images[i:i+1] for i in range(0, len(images), 1)]
 
     for batch_idx, batch in enumerate(page_batches):
         content = []

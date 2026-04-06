@@ -10,7 +10,7 @@ import os
 import json
 import re
 import tempfile
-import base6
+import base64
 from io import BytesIO
 
 app = Flask(__name__, static_folder="static", static_url_path="")
@@ -119,7 +119,7 @@ Return ONLY a JSON object in this exact format (no markdown code blocks, no extr
   "company_name": "name of the tour operator / supplier company",
   "items": [
     {
-      "product_name": "tour program name | route/destination | departure time",
+      "product_name": "Oneday Tour Type | Program Name | From → To | DEP. Time - ARR. Time",
       "net_rate": 1000,
       "selling_rate": 1500,
       "notes": "e.g. Adult, Child, group size, category"
@@ -129,18 +129,24 @@ Return ONLY a JSON object in this exact format (no markdown code blocks, no extr
 
 Rules:
 - company_name: the operator/supplier name (not the travel agent)
-- product_name: combine THREE pieces of information separated by " | ":
-    1. Program/product name (e.g. "Phi Phi Island Tour", "Similan Diving", "ATV Adventure")
-    2. Route or destination (e.g. "Phuket → Phi Phi", "Krabi - Railay", "Koh Samui") — omit if not stated
-    3. Departure time or schedule (e.g. "08:00-17:00", "Full Day", "Half Day AM", "07:30 depart") — omit if not stated
-    Example: "Phi Phi Island Tour | Phuket → Phi Phi | 08:00-17:00"
-    Example: "Similan Liveaboard | Khao Lak → Similan | 2D1N"
-    Example: "ATV Adventure | Chalong Circuit" (no time listed)
-    If route and time are both absent, use just the program name.
-- net_rate: agent cost price in THB (number only). Look for labels: Net Rate, Net Price, Agent Rate, Cost
-- selling_rate: retail/public price in THB. Look for: Selling Rate, Public Rate, Rack Rate, Adult Rate. Use 0 if not found.
+- product_name: combine ALL available fields below, separated by " | " — include every piece of information found:
+    1. Tour type / category (e.g. "Oneday Tour", "Speedboat Tour", "Liveaboard", "Transfer", "Package") — include if shown
+    2. Program name (e.g. "Phi Phi Island Tour", "Similan Diving Day Trip", "ATV Adventure") — always include
+    3. Route: departure point → destination (e.g. "Phuket → Phi Phi", "Khao Lak → Similan", "Krabi → Railay") — look for columns: From/To, From, Route, Departure Point, Origin/Destination — include if found
+    4. Departure & arrival time (e.g. "DEP. 07:30 - ARR. 17:00", "08:00-17:00", "Full Day", "Half Day AM") — look for columns: Time DEP.-ARR., Time, Schedule, Departure Time — include if found
+    Build product_name by joining only the fields that are actually present in the document.
+    Examples:
+      "Oneday Tour | Phi Phi Island Tour | Phuket → Phi Phi | DEP. 07:30 - ARR. 17:00"
+      "Speedboat Tour | Similan Day Trip | Khao Lak → Similan | DEP. 06:00 - ARR. 18:00"
+      "Liveaboard | Similan Islands | Khao Lak → Similan | 2D1N"
+      "Phi Phi Island Tour | Phuket → Phi Phi | 08:00-17:00"
+      "ATV Adventure | Chalong Circuit | 09:00-12:00"
+      "Transfer | Phuket Airport → Patong Hotel"
+    Include as much detail as possible — do NOT omit route or time if they appear anywhere in the row or header.
+- net_rate: agent/net cost price in THB (number only). Look for: Net Rate, Net Price, Agent Rate, Net, Cost
+- selling_rate: retail/public price in THB. Look for: Selling Rate, Public Rate, Rack Rate, Adult Rate, Full Price. Use 0 if not found.
 - Include ALL line items (Adult, Child, Infant, different pax counts as separate items)
-- If prices vary by group size, list each as a separate item with details in notes
+- If prices vary by group size or pax count, list each as a separate item with pax details in notes
 - Return ONLY the JSON object"""
 
     content = []

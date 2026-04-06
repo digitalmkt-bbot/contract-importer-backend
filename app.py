@@ -152,10 +152,10 @@ Rules:
 - Do NOT stop early — extract until the LAST row of data on the page
 - Return ONLY the JSON object"""
 
-    # Process all pages in batches of 4 to avoid token limits
+    # Process all pages in batches of 2 to stay within output token limits
     all_items = []
     company_name = ""
-    page_batches = [images[i:i+4] for i in range(0, len(images), 4)]
+    page_batches = [images[i:i+2] for i in range(0, len(images), 2)]
 
     for batch_idx, batch in enumerate(page_batches):
         content = []
@@ -173,7 +173,7 @@ Rules:
         content.append({"type": "text", "text": user_prompt})
 
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4o-2024-08-06",
             max_tokens=16000,
             messages=[
                 {"role": "system", "content": system_prompt},

@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contract Importer — Love Andaman</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; color: #1a202c; min-height: 100vh; }
+
+  header {
+    background: linear-gradient(135deg, #1a365d 0%, #2b6cb0 100%);
+    color: white; padding: 20px 32px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  header h1 { font-size: 20px; font-weight: 700; }
+  header span { font-size: 13px; opacity: 0.8; }
+
+  .container { max-width: 900px; margin: 32px auto; padding: 0 16px; }
+
+  .card {
+    background: white; border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    padding: 28px; margin-bottom: 20px;
+  }
+  .card h2 { font-size: 16px; font-weight: 600; color: #2d3748; margin-bottom: 16px; }
+
+  .drop-zone {
+    border: 2px dashed #90cdf4; border-radius: 10px;
+    padding: 40px 24px; text-align: center; cursor: pointer;
+    transition: all 0.2s; background: #ebf8ff;
+  }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: #3182ce; background: #bee3f8;
+  }
+  .drop-zone .icon { font-size: 40px; margin-bottom: 10px; }
+  .drop-zone p { color: #4a5568; font-size: 14px; }
+  .drop-zone p strong { color: #2b6cb0; }
+  .drop-zone small { color: #718096; font-size: 12px; margin-top: 6px; display: block; }
+  #fileInput { display: none; }
+
+  #preview { display: none; margin-top: 16px; }
+  #preview img { max-height: 180px; border-radius: 8px; border: 1px solid #e2e8f0; }
+  .file-info { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    background: #f7fafc; border-radius: 8px; border: 1px solid #e2e8f0; }
+  .file-info .file-icon { font-size: 24px; }
+  .file-info .file-name { font-size: 14px; font-weight: 500; color: #2d3748; }
+  .file-info .file-size { font-size: 12px; color: #718096; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 20px; border-radius: 8px; border: none;
+    font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+  }
+  .btn-primary { background: #3182ce; color: white; }
+  .btn-primary:hover:not(:disabled) { background: #2b6cb0; }
+  .btn-success { background: #38a169; color: white; }
+  .btn-success:hover:not(:disabled) { background: #2f855a; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+
+  .status { padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-top: 12px; display: none; }
+  .status.info { background: #ebf8ff; color: #2b6cb0; border: 1px solid #90cdf4; }
+  .status.success { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
+  .status.error { background: #fff5f5; color: #c53030; border: 1px solid #fc8181; }
+
+  .spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: white; border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .results-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px; flex-wrap: wrap; gap: 8px;
+  }
+  .company-badge {
+    background: #ebf8ff; color: #2b6cb0; border: 1px solid #90cdf4;
+    padding: 4px 10px; border-radius: 20px; font-size: 13px; font-weight: 600;
+  }
+  .count-badge {
+    background: #f0fff4; color: #276749; border: 1px solid #9ae6b4;
+    padding: 4px 10px; border-radius: 20px; font-size: 12px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: #2b6cb0; color: white; padding: 10px 12px; text-align: left; }
+  td { padding: 9px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  tr:nth-child(even) td { background: #f7fafc; }
+  tr:hover td { background: #ebf8ff; }
+  td input {
+    width: 100%; border: 1px solid #e2e8f0; border-radius: 5px;
+    padding: 4px 8px; font-size: 13px; background: white;
+  }
+  td input:focus { outline: none; border-color: #3182ce; box-shadow: 0 0 0 2px rgba(49,130,206,0.2); }
+  .del-btn {
+    background: none; border: none; color: #fc8181; cursor: pointer;
+    font-size: 16px; padding: 2px 6px; border-radius: 4px;
+  }
+  .del-btn:hover { background: #fff5f5; }
+
+  #importResult { margin-top: 12px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>🏝️</div>
+  <div>
+    <h1>Contract Importer</h1>
+    <span>Love Andaman — อัปโหลด Contract → ดึงราคา → บันทึกใน Sheet</span>
+  </div>
+</header>
+
+<div class="container">
+
+  <div class="card">
+    <h2>📁 อัปโหลดไฟล์ Contract</h2>
+    <div class="drop-zone" id="dropZone">
+      <div class="icon">📄</div>
+      <p>ลากไฟล์มาวางที่นี่ หรือ <strong>คลิกเพื่อเลือกไฟล์</strong></p>
+      <small>รองรับ: PDF, PNG, JPG, JPEG, WEBP (สูงสุด 20 MB)</small>
+    </div>
+    <input type="file" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,.webp,image/*,application/pdf">
+    <div id="preview"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="extractBtn" disabled>
+        🔍 ดึงข้อมูลราคา
+      </button>
+    </div>
+    <div class="status" id="extractStatus"></div>
+  </div>
+
+  <div class="card" id="resultsCard" style="display:none">
+    <div class="results-header">
+      <h2>📋 ข้อมูลที่ดึงได้</h2>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span class="company-badge" id="companyBadge"></span>
+        <span class="count-badge" id="countBadge"></span>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table id="resultsTable">
+        <thead>
+          <tr>
+            <th style="width:40%">ชื่อโปรแกรม / สินค้า</th>
+            <th style="width:15%">Net Rate (฿)</th>
+            <th style="width:15%">Selling Rate (฿)</th>
+            <th style="width:22%">หมายเหตุ</th>
+            <th style="width:8%">ลบ</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-success" id="importBtn">
+        📊 บันทึกเข้า Google Sheet
+      </button>
+    </div>
+    <div id="importResult"></div>
+  </div>
+
+</div>
+
+<script>
+  const API = '';
+  let currentFile = null;
+  let extractedData = null;
+
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file) setFile(file);
+  });
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) setFile(fileInput.files[0]);
+  });
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/1024/1024).toFixed(1) + ' MB';
+  }
+
+  function setFile(file) {
+    currentFile = file;
+    const isImage = file.type.startsWith('image/');
+    const preview = document.getElementById('preview');
+    preview.style.display = 'block';
+
+    if (isImage) {
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(file);
+      preview.innerHTML = '';
+      preview.appendChild(img);
+    } else {
+      preview.innerHTML = '<div class="file-info"><span class="file-icon">📄</span><div><div class="file-name">' + file.name + '</div><div class="file-size">' + formatSize(file.size) + '</div></div></div>';
+    }
+
+    document.getElementById('extractBtn').disabled = false;
+    document.getElementById('resultsCard').style.display = 'none';
+    showStatus('extractStatus', '', '');
+  }
+
+  function showStatus(id, type, msg) {
+    const el = document.getElementById(id);
+    el.className = 'status ' + type;
+    el.style.display = msg ? 'block' : 'none';
+    el.textContent = msg;
+  }
+
+  document.getElementById('extractBtn').addEventListener('click', async () => {
+    if (!currentFile) return;
+    const btn = document.getElementById('extractBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> กำลังดึงข้อมูล...';
+    showStatus('extractStatus', 'info', '⏳ กำลังส่งไฟล์ให้ AI วิเคราะห์ กรุณารอสักครู่...');
+
+    try {
+      const form = new FormData();
+      form.append('file', currentFile);
+      const res = await fetch(API + '/api/extract', { method: 'POST', body: form });
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        showStatus('extractStatus', 'error', '❌ ' + (data.error || 'เกิดข้อผิดพลาด'));
+        return;
+      }
+
+      extractedData = data;
+      renderResults(data);
+      showStatus('extractStatus', 'success', '✅ ดึงข้อมูลสำเร็จ พบ ' + (data.items||[]).length + ' รายการ');
+    } catch (e) {
+      showStatus('extractStatus', 'error', '❌ ' + e.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '🔍 ดึงข้อมูลราคา';
+    }
+  });
+
+  function renderResults(data) {
+    const company = data.company_name || '';
+    const items = data.items || [];
+    document.getElementById('companyBadge').textContent = '🏢 ' + (company || 'ไม่ระบุบริษัท');
+    document.getElementById('countBadge').textContent = items.length + ' รายการ';
+
+    const tbody = document.getElementById('resultsBody');
+    tbody.innerHTML = '';
+    items.forEach((item, i) => {
+      const tr = document.createElement('tr');
+      const pn = (item.product_name||'').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+      const nt = (item.notes||'').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+      tr.innerHTML = '<td><input type="text" value="' + pn + '" data-i="' + i + '" data-f="product_name"></td>' +
+        '<td><input type="number" value="' + (item.net_rate||item.net_price||0) + '" data-i="' + i + '" data-f="net_rate" style="text-align:right"></td>' +
+        '<td><input type="number" value="' + (item.selling_rate||item.public_rate||0) + '" data-i="' + i + '" data-f="selling_rate" style="text-align:right"></td>' +
+        '<td><input type="text" value="' + nt + '" data-i="' + i + '" data-f="notes"></td>' +
+        '<td><button class="del-btn" onclick="delRow(this)">✕</button></td>';
+      tbody.appendChild(tr);
+    });
+
+    tbody.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('input', () => {
+        const i = +inp.dataset.i, f = inp.dataset.f;
+        extractedData.items[i][f] = inp.type === 'number' ? +inp.value : inp.value;
+      });
+    });
+
+    document.getElementById('resultsCard').style.display = 'block';
+    document.getElementById('importResult').innerHTML = '';
+  }
+
+  function delRow(btn) {
+    const tr = btn.closest('tr');
+    const i = +tr.querySelector('input').dataset.i;
+    extractedData.items.splice(i, 1);
+    renderResults(extractedData);
+  }
+
+  document.getElementById('importBtn').addEventListener('click', async () => {
+    if (!extractedData) return;
+    const btn = document.getElementById('importBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> กำลังบันทึก...';
+    document.getElementById('importResult').innerHTML = '';
+
+    try {
+      const res = await fetch(API + '/api/import-sheets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(extractedData)
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        let msg = '✅ ' + data.message;
+        if (data.rows_skipped > 0) msg += ' (ข้ามซ้ำ ' + data.rows_skipped + ' รายการ)';
+        document.getElementById('importResult').innerHTML = '<div class="status success" style="display:block;margin-top:10px">' + msg + '</div>';
+      } else {
+        document.getElementById('importResult').innerHTML = '<div class="status error" style="display:block;margin-top:10px">❌ ' + (data.error||'เกิดข้อผิดพลาด') + '</div>';
+      }
+    } catch(e) {
+      document.getElementById('importResult').innerHTML = '<div class="status error" style="display:block;margin-top:10px">❌ ' + e.message + '</div>';
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '📊 บันทึกเข้า Google Sheet';
+    }
+  });
+</script>
+</body>
+</html>

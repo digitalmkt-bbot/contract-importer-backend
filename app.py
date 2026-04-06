@@ -348,12 +348,14 @@ def import_sheets():
         if ws is None:
             ws = sh.sheet1
 
-        # Dedup: build set of existing (company|product_name) keys (rows 5+, cols E-F)
+        # Sheet column layout (0-indexed):
+        #   A(0) B(1) C(2) D(3) | E(4)=Operator  F(5)=Product Name | G(6) | H(7)=Net Rate | I(8)=Selling Rate
+        # Dedup: build set of existing (operator|product_name) keys from cols E-F (rows 5+)
         existing_keys = set()
         all_values = ws.get_all_values()
         for row in all_values[4:]:  # skip header rows 1-4
-            e = row[4].strip() if len(row) > 4 else ""
-            f = row[5].strip() if len(row) > 5 else ""
+            e = row[4].strip() if len(row) > 4 else ""   # col E = Operator / company
+            f = row[5].strip() if len(row) > 5 else ""   # col F = Product Name
             k = (e + "|" + f).lower()
             if k != "|":
                 existing_keys.add(k)
@@ -367,24 +369,31 @@ def import_sheets():
             if k in existing_keys:
                 skipped.append(name)
             else:
+                # Write to correct columns: pad A-D empty, E=company, F=product, G empty, H=net, I=selling
                 rows.append([
-                    company,
-                    name,
+                    "",        # col A (empty)
+                    "",        # col B (empty)
+                    "",        # col C (empty)
+                    "",        # col D (empty)
+                    company,   # col E = Operator name
+                    name,      # col F = Product / tour name
+                    "",        # col G (empty)
                     item.get("net_rate", item.get("net_price", "")),
                     item.get("selling_rate", item.get("public_rate", item.get("cost", ""))),
-                    item.get("notes", "")
+                    "",        # col J = Profit (leave blank for formula)
+                    item.get("notes", "")  # col K = notes
                 ])
                 existing_keys.add(k)
 
         if rows:
             ws.append_rows(rows, value_input_option="USER_ENTERED")
 
-        skip_msg = f", ข้ามซ้ำ {len(skipped)} รายการ" if skipped else ""
+        skip_msg = f" (ข้ามซ้ำ {len(skipped)} รายการ)" if skipped else ""
         return jsonify({
             "success": True,
             "rows_added": len(rows),
             "rows_skipped": len(skipped),
-            "message": f"นำเข้าข้อมูลสำเร็จ {len(rows)} รายการ{skip_msg}"
+            "message": f"✅ นำเข้าข้อมูลสำเร็จ {len(rows)} รายการ{skip_msg}"
         })
 
     except Exception as e:

@@ -10,7 +10,7 @@ import os
 import json
 import re
 import tempfile
-import base64
+import base6
 from io import BytesIO
 
 app = Flask(__name__, static_folder="static", static_url_path="")
@@ -60,7 +60,7 @@ def status():
 @app.route("/api/extract", methods=["POST"])
 def extract():
     # รับทั้ง "file" (ใหม่) และ "pdf" (เก่า) เพื่อ backward-compatibility
-  2 uploaded = request.files.get("file") or request.files.get("pdf")
+    uploaded = request.files.get("file") or request.files.get("pdf")
     if not uploaded:
         return jsonify({"error": "ไม่พบไฟล์ (ส่งเป็น field ชื่อ 'file')"}), 400
 

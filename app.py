@@ -109,7 +109,7 @@ def extract_with_claude(images, api_key):
     system_prompt = (
         "You are a data extraction assistant for a travel agency's internal pricing system. "
         "Your job is to read tour operator rate sheets / price contracts and extract structured pricing data. "
-        "Always respond with valid JSON only — no markdown, no explanations."
+        "Always respond with valid JSON only — ho markdown, no explanations."
     )
 
     user_prompt = """Extract ALL pricing data from this tour operator contract/rate sheet image(s).
@@ -120,10 +120,10 @@ Return ONLY a JSON object in this exact format (no markdown code blocks, no extr
   "company_name": "name of the tour operator / supplier company",
   "items": [
     {
-      "product_name": "Oneday Tour Type | Program Name | From → To | DEP. Time - ARR. Time",
+      "product_name": "Oneday Tour Type | Program Name | From → To | DEP. Time - ARR. Time | Passenger Type",
       "net_rate": 1000,
       "selling_rate": 1500,
-      "notes": "e.g. Adult, Child, group size, category"
+      "notes": "any other remarks or conditions"
     }
   ]
 }
@@ -135,19 +135,25 @@ Rules:
     2. Program name (e.g. "Phi Phi Island Tour", "Similan Diving Day Trip", "ATV Adventure") — always include
     3. Route: departure point → destination (e.g. "Phuket → Phi Phi", "Khao Lak → Similan", "Krabi → Railay") — look for columns: From/To, From, Route, Departure Point, Origin/Destination — include if found
     4. Departure & arrival time (e.g. "DEP. 07:30 - ARR. 17:00", "08:00-17:00", "Full Day", "Half Day AM") — look for columns: Time DEP.-ARR., Time, Schedule, Departure Time — include if found
+    5. PASSENGER TYPE / AGE RANGE — ALWAYS append as the LAST segment of product_name whenever the row has a specific passenger type or age category:
+       - Use the exact label from the document: "Adult", "Child", "Infant", "CHD", "INF", "Pax 1-4", "Min 15 Pax", "Per Person", etc.
+       - This is MANDATORY: every row that corresponds to a specific age group or pax tier MUST have that label at the end of product_name.
+       - Do NOT put passenger type / age category in the notes field.
     Build product_name by joining only the fields that are actually present in the document.
     Examples:
-      "Oneday Tour | Phi Phi Island Tour | Phuket → Phi Phi | DEP. 07:30 - ARR. 17:00"
-      "Speedboat Tour | Similan Day Trip | Khao Lak → Similan | DEP. 06:00 - ARR. 18:00"
-      "Liveaboard | Similan Islands | Khao Lak → Similan | 2D1N"
-      "Phi Phi Island Tour | Phuket → Phi Phi | 08:00-17:00"
-      "ATV Adventure | Chalong Circuit | 09:00-12:00"
-      "Transfer | Phuket Airport → Patong Hotel"
-    Include as much detail as possible — do NOT omit route or time if they appear anywhere in the row or header.
+      "Oneday Tour | Phi Phi Island Tour | Phuket → Phi Phi | DEP. 07:30 - ARR. 17:00 | Adult"
+      "Oneday Tour | Phi Phi Island Tour | Phuket → Phi Phi | DEP. 07:30 - ARR. 17:00 | Child"
+      "Oneday Tour | Phi Phi Island Tour | Phuket → Phi Phi | DEP. 07:30 - ARR. 17:00 | Infant"
+      "Speedboat Tour | Similan Day Trip | Khao Lak → Similan | DEP. 06:00 - ARR. 18:00 | Adult"
+      "Liveaboard | Similan Islands | Khao Lak → Similan | 2D1N | Adult"
+      "Transfer | Phuket Airport → Patong Hotel | 1-4 Pax"
+      "ATV Adventure | Chalong Circuit | 09:00-12:00 | Adult"
+    Include as much detail as possible — do NOT omit route, time, or passenger type if they appear anywhere in the row or header.
 - net_rate: agent/net cost price in THB (number only). Look for: Net Rate, Net Price, Agent Rate, Net, Cost
 - selling_rate: retail/public price in THB. Look for: Selling Rate, Public Rate, Rack Rate, Adult Rate, Full Price. Use 0 if not found.
+- notes: use ONLY for remarks, conditions, or special notes that are NOT passenger type or age group (e.g. "Include transfer", "Min 2 pax", "Seasonal surcharge applies"). Leave empty string if nothing to note.
 - MUST include ALL line items without exception: Adult, Child, Infant, every pax count variation, every category
-- If prices vary by group size or pax count, each must be a SEPARATE item with pax details in notes
+- If prices vary by passenger type or group size, each must be a SEPARATE item — with the type/tier appended to product_name
 - If a table header applies to multiple rows below it, repeat the header info in each row's product_name
 - Do NOT stop early — extract until the LAST row of data on the page
 - Return ONLY the JSON object"""

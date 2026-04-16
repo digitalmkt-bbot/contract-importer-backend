@@ -151,7 +151,7 @@ Rules:
     Include as much detail as possible — do NOT omit route, time, or passenger type if they appear anywhere in the row or header.
 - net_rate: agent/net cost price in THB (number only). Look for: Net Rate, Net Price, Agent Rate, Net, Cost
 - selling_rate: retail/public price in THB. Look for: Selling Rate, Public Rate, Rack Rate, Adult Rate, Full Price. Use 0 if not found.
-- notes: use ONLY for remarks, conditions, or special notes that are NOT passenger type or age group (e.g. "Include transfer", "Min 2 pax", "Seasonal surcharge applies"). Leave empty string if nothing to note.
+- notes: extract the value from any column named "Remark", "Remarks", "หมายเหตุ", "Note", "Notes", "Condition", "Conditions", "Remark/Note" in the document and put it here. Also include any other special conditions or remarks that are NOT passenger type or age group (e.g. "Include transfer", "Min 2 pax", "Seasonal surcharge applies"). Leave empty string if nothing to note.
 - MUST include ALL line items without exception: Adult, Child, Infant, every pax count variation, every category
 - If prices vary by passenger type or group size, each must be a SEPARATE item — with the type/tier appended to product_name
 - If a table header applies to multiple rows below it, repeat the header info in each row's product_name

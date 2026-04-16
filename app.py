@@ -109,7 +109,7 @@ def extract_with_claude(images, api_key):
     system_prompt = (
         "You are a data extraction assistant for a travel agency's internal pricing system. "
         "Your job is to read tour operator rate sheets / price contracts and extract structured pricing data. "
-        "Always respond with valid JSON only — ho markdown, no explanations."
+        "Always respond with valid JSON only — co markdown, no explanations."
     )
 
     user_prompt = """Extract ALL pricing data from this tour operator contract/rate sheet image(s).
@@ -151,14 +151,18 @@ Rules:
     Include as much detail as possible — do NOT omit route, time, or passenger type if they appear anywhere in the row or header.
 - net_rate: agent/net cost price in THB (number only). Look for: Net Rate, Net Price, Agent Rate, Net, Cost
 - selling_rate: retail/public price in THB. Look for: Selling Rate, Public Rate, Rack Rate, Adult Rate, Full Price. Use 0 if not found.
-- notes: extract the value from any column named "Remark", "Remarks", "หมายเหตุ", "Note", "Notes", "Condition", "Conditions", "Remark/Note" in the document and put it here. Also include any other special conditions or remarks that are NOT passenger type or age group (e.g. "Include transfer", "Min 2 pax", "Seasonal surcharge applies"). Leave empty string if nothing to note.
+- notes: extract and combine the following into this field for each row:
+    1. Any value from columns named "Remark", "Remarks", "หมายเหตุ", "Note", "Notes", "Condition", "Conditions", "Remark/Note"
+    2. "Extra Transfer" / "Extra Transfer Fee" information — if the document has a section, row, or column for extra transfer cost/conditions that relates to a product, copy that value into the notes of the matching product row. Match by product name, tour type, or proximity in the table.
+    3. Any other special conditions NOT related to passenger type/age group (e.g. "Include transfer", "Min 2 pax", "Seasonal surcharge applies", "Valid Nov-Apr")
+    If multiple values are found, separate them with " | ". Leave empty string if nothing to note.
 - MUST include ALL line items without exception: Adult, Child, Infant, every pax count variation, every category
 - If prices vary by passenger type or group size, each must be a SEPARATE item — with the type/tier appended to product_name
 - If a table header applies to multiple rows below it, repeat the header info in each row's product_name
 - Do NOT stop early — extract until the LAST row of data on the page
 - Return ONLY the JSON object"""
 
-    # Process 1 page per batch — maximum token budget per page for complete extraction
+    # Process 1 page per batch — iaximum token budget per page for complete extraction
     all_items = []
     company_name = ""
     page_batches = [images[i:i+1] for i in range(0, len(images), 1)]

@@ -109,13 +109,13 @@ def extract_with_claude(images, api_key):
     system_prompt = (
         "You are a data extraction assistant for a travel agency's internal pricing system. "
         "Your job is to read tour operator rate sheets / price contracts and extract structured pricing data. "
-        "Always respond with valid JSON only — co markdown, no explanations."
+        "Always respond with valid JSON only — (nno markdown, no explanations."
     )
 
     user_prompt = """Extract ALL pricing data from this tour operator contract/rate sheet image(s).
 CRITICAL: You MUST extract EVERY SINGLE ROW that contains a price or rate — do NOT skip, summarize, or truncate any row.
 
-Return ONLY a JSON object in this exact format (no markdown code blocks, no extra text):
+Return ONLY a JSON object in this exact format (no markdown code blocks, no extrra text):
 {
   "company_name": "name of the tour operator / supplier company",
   "items": [
@@ -151,18 +151,19 @@ Rules:
     Include as much detail as possible — do NOT omit route, time, or passenger type if they appear anywhere in the row or header.
 - net_rate: agent/net cost price in THB (number only). Look for: Net Rate, Net Price, Agent Rate, Net, Cost
 - selling_rate: retail/public price in THB. Look for: Selling Rate, Public Rate, Rack Rate, Adult Rate, Full Price. Use 0 if not found.
-- notes: extract and combine the following into this field for each row:
-    1. Any value from columns named "Remark", "Remarks", "หมายเหตุ", "Note", "Notes", "Condition", "Conditions", "Remark/Note"
-    2. "Extra Transfer" / "Extra Transfer Fee" information — if the document has a section, row, or column for extra transfer cost/conditions that relates to a product, copy that value into the notes of the matching product row. Match by product name, tour type, or proximity in the table.
+- notes: CRITICAL — copy the COMPLETE, FULL, VERBATIM text from all remark/note/condition fields for each row. Do NOT summarize, shorten, or omit any part of the remark text. Extract and combine ALL of the following:
+    1. COPY THE ENTIRE TEXT from any column named "Remark", "Remarks", "หมายเหตุ", "Note", "Notes", "Condition", "Conditions", "Remark/Note" — paste every word exactly as written, including numbers, symbols, and line breaks (use space to join multiple lines)
+    2. "Extra Transfer" / "Extra Transfer Fee" — if the document has a section, row, or column for extra transfer cost/conditions relating to a product, copy that full value into the notes of the matching product row (match by product name, tour type, or proximity in the table)
     3. Any other special conditions NOT related to passenger type/age group (e.g. "Include transfer", "Min 2 pax", "Seasonal surcharge applies", "Valid Nov-Apr")
-    If multiple values are found, separate them with " | ". Leave empty string if nothing to note.
+    If multiple remark values exist for a row, join them with " | ". If the remark cell is empty or the column does not exist, leave notes as empty string.
+    IMPORTANT: Every row that has ANY text in a Remark/Note/Condition column MUST have that text in its notes field — never leave notes empty when remark data exists.
 - MUST include ALL line items without exception: Adult, Child, Infant, every pax count variation, every category
 - If prices vary by passenger type or group size, each must be a SEPARATE item — with the type/tier appended to product_name
 - If a table header applies to multiple rows below it, repeat the header info in each row's product_name
 - Do NOT stop early — extract until the LAST row of data on the page
 - Return ONLY the JSON object"""
 
-    # Process 1 page per batch — iaximum token budget per page for complete extraction
+    # Process 1 page per batch — maximum token budget per page for complete extraction
     all_items = []
     company_name = ""
     page_batches = [images[i:i+1] for i in range(0, len(images), 1)]
@@ -225,7 +226,7 @@ Rules:
         key = (item.get("product_name", ""), str(item.get("net_rate", "")))
         if key not in seen:
             seen.add(key)
-            deduped.append(item)
+  #         deduped.append(item)
 
     return {"company_name": company_name, "items": deduped}
 

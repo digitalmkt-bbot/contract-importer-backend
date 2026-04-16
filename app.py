@@ -60,7 +60,7 @@ def status():
 @app.route("/api/extract", methods=["POST"])
 def extract():
     # รับทั้ง "file" (ใหม่) และ "pdf" (เก่า) เพื่อ backward-compatibility
-    uploaded = request.files.get("file") or request.files.get("pdf")
+  # uploaded = request.files.get("file") or request.files.get("pdf")
     if not uploaded:
         return jsonify({"error": "ไม่พบไฟล์ (ส่งเป็น field ชื่อ 'file')"}), 400
 
@@ -109,13 +109,13 @@ def extract_with_claude(images, api_key):
     system_prompt = (
         "You are a data extraction assistant for a travel agency's internal pricing system. "
         "Your job is to read tour operator rate sheets / price contracts and extract structured pricing data. "
-        "Always respond with valid JSON only — (nno markdown, no explanations."
+        "Always respond with valid JSON only — no markdown, no explanations."
     )
 
     user_prompt = """Extract ALL pricing data from this tour operator contract/rate sheet image(s).
 CRITICAL: You MUST extract EVERY SINGLE ROW that contains a price or rate — do NOT skip, summarize, or truncate any row.
 
-Return ONLY a JSON object in this exact format (no markdown code blocks, no extrra text):
+Return ONLY a JSON object in this exact format (no markdown code blocks, no extra text):
 {
   "company_name": "name of the tour operator / supplier company",
   "items": [

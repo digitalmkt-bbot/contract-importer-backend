@@ -25,6 +25,7 @@
   }
   .card h2 { font-size: 16px; font-weight: 600; color: #2d3748; margin-bottom: 16px; }
 
+  /* Drop zone */
   .drop-zone {
     border: 2px dashed #90cdf4; border-radius: 10px;
     padding: 40px 24px; text-align: center; cursor: pointer;
@@ -39,14 +40,19 @@
   .drop-zone small { color: #718096; font-size: 12px; margin-top: 6px; display: block; }
   #fileInput { display: none; }
 
-  #preview { display: none; margin-top: 16px; }
-  #preview img { max-height: 180px; border-radius: 8px; border: 1px solid #e2e8f0; }
-  .file-info { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-    background: #f7fafc; border-radius: 8px; border: 1px solid #e2e8f0; }
-  .file-info .file-icon { font-size: 24px; }
-  .file-info .file-name { font-size: 14px; font-weight: 500; color: #2d3748; }
-  .file-info .file-size { font-size: 12px; color: #718096; }
+  /* File list */
+  #fileList { display: none; margin-top: 16px; }
+  .file-item {
+    display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+    background: #f7fafc; border-radius: 8px; border: 1px solid #e2e8f0;
+    margin-bottom: 6px;
+  }
+  .file-item .file-icon { font-size: 20px; flex-shrink: 0; }
+  .file-item .file-name { font-size: 14px; font-weight: 500; color: #2d3748; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-item .file-size { font-size: 12px; color: #718096; flex-shrink: 0; }
+  .file-item .file-status { font-size: 12px; flex-shrink: 0; min-width: 80px; text-align: right; }
 
+  /* Buttons */
   .btn {
     display: inline-flex; align-items: center; gap: 8px;
     padding: 10px 20px; border-radius: 8px; border: none;
@@ -59,19 +65,34 @@
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
 
+  /* Status */
   .status { padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-top: 12px; display: none; }
   .status.info { background: #ebf8ff; color: #2b6cb0; border: 1px solid #90cdf4; }
   .status.success { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
   .status.error { background: #fff5f5; color: #c53030; border: 1px solid #fc8181; }
 
+  /* Spinner */
   .spinner {
     display: inline-block; width: 14px; height: 14px;
     border: 2px solid rgba(255,255,255,0.4);
     border-top-color: white; border-radius: 50%;
     animation: spin 0.7s linear infinite;
   }
+  .spinner-dark {
+    display: inline-block; width: 12px; height: 12px;
+    border: 2px solid rgba(0,0,0,0.15);
+    border-top-color: #2b6cb0; border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* Progress bar */
+  .progress-wrap { margin-top: 10px; display: none; }
+  .progress-bar-bg { background: #e2e8f0; border-radius: 6px; height: 8px; overflow: hidden; }
+  .progress-bar-fill { background: #3182ce; height: 8px; border-radius: 6px; transition: width 0.3s; }
+  .progress-text { font-size: 12px; color: #718096; margin-top: 4px; text-align: center; }
+
+  /* Results table */
   .results-header {
     display: flex; justify-content: space-between; align-items: center;
     margin-bottom: 14px; flex-wrap: wrap; gap: 8px;
@@ -100,6 +121,7 @@
   }
   .del-btn:hover { background: #fff5f5; }
 
+  /* Import result */
   #importResult { margin-top: 12px; }
 </style>
 </head>
@@ -115,23 +137,35 @@
 
 <div class="container">
 
+  <!-- Upload -->
   <div class="card">
     <h2>📁 อัปโหลดไฟล์ Contract</h2>
     <div class="drop-zone" id="dropZone">
       <div class="icon">📄</div>
       <p>ลากไฟล์มาวางที่นี่ หรือ <strong>คลิกเพื่อเลือกไฟล์</strong></p>
-      <small>รองรับ: PDF, PNG, JPG, JPEG, WEBP (สูงสุด 20 MB)</small>
+      <small>รองรับ: PDF, PNG, JPG, JPEG, WEBP (สูงสุด 20 MB / ไฟล์) • เลือกได้หลายไฟล์พร้อมกัน</small>
     </div>
-    <input type="file" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,.webp,image/*,application/pdf">
-    <div id="preview"></div>
+    <input type="file" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,.webp,image/*,application/pdf" multiple>
+
+    <!-- File list -->
+    <div id="fileList"></div>
+
     <div class="btn-row">
       <button class="btn btn-primary" id="extractBtn" disabled>
         🔍 ดึงข้อมูลราคา
       </button>
     </div>
+
+    <!-- Progress -->
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill" style="width:0%"></div></div>
+      <div class="progress-text" id="progressText"></div>
+    </div>
+
     <div class="status" id="extractStatus"></div>
   </div>
 
+  <!-- Results -->
   <div class="card" id="resultsCard" style="display:none">
     <div class="results-header">
       <h2>📋 ข้อมูลที่ดึงได้</h2>
@@ -165,10 +199,11 @@
 </div>
 
 <script>
-  const API = '';
-  let currentFile = null;
-  let extractedData = null;
+  const API = '';  // same origin
+  let currentFiles = [];        // Array of File objects
+  let extractedData = null;     // { company_name, items[] }
 
+  // --- Drop zone ---
   const dropZone = document.getElementById('dropZone');
   const fileInput = document.getElementById('fileInput');
 
@@ -178,11 +213,10 @@
   dropZone.addEventListener('drop', e => {
     e.preventDefault();
     dropZone.classList.remove('dragover');
-    const file = e.dataTransfer.files[0];
-    if (file) setFile(file);
+    if (e.dataTransfer.files.length) setFiles(Array.from(e.dataTransfer.files));
   });
   fileInput.addEventListener('change', () => {
-    if (fileInput.files[0]) setFile(fileInput.files[0]);
+    if (fileInput.files.length) setFiles(Array.from(fileInput.files));
   });
 
   function formatSize(bytes) {
@@ -191,24 +225,57 @@
     return (bytes/1024/1024).toFixed(1) + ' MB';
   }
 
-  function setFile(file) {
-    currentFile = file;
-    const isImage = file.type.startsWith('image/');
-    const preview = document.getElementById('preview');
-    preview.style.display = 'block';
+  function fileIcon(file) {
+    if (file.type === 'application/pdf') return '📄';
+    if (file.type.startsWith('image/')) return '🖼️';
+    return '📎';
+  }
 
-    if (isImage) {
-      const img = document.createElement('img');
-      img.src = URL.createObjectURL(file);
-      preview.innerHTML = '';
-      preview.appendChild(img);
-    } else {
-      preview.innerHTML = '<div class="file-info"><span class="file-icon">📄</span><div><div class="file-name">' + file.name + '</div><div class="file-size">' + formatSize(file.size) + '</div></div></div>';
-    }
-
+  function setFiles(files) {
+    currentFiles = files;
+    renderFileList(files);
     document.getElementById('extractBtn').disabled = false;
     document.getElementById('resultsCard').style.display = 'none';
     showStatus('extractStatus', '', '');
+    document.getElementById('importResult').innerHTML = '';
+    setProgress(0, '');
+  }
+
+  function renderFileList(files) {
+    const container = document.getElementById('fileList');
+    container.style.display = 'block';
+    container.innerHTML = '';
+    files.forEach((f, i) => {
+      const div = document.createElement('div');
+      div.className = 'file-item';
+      div.id = 'file-item-' + i;
+      div.innerHTML = `
+        <span class="file-icon">${fileIcon(f)}</span>
+        <span class="file-name">${esc(f.name)}</span>
+        <span class="file-size">${formatSize(f.size)}</span>
+        <span class="file-status" id="file-status-${i}"></span>`;
+      container.appendChild(div);
+    });
+  }
+
+  function setFileStatus(i, html) {
+    const el = document.getElementById('file-status-' + i);
+    if (el) el.innerHTML = html;
+  }
+
+  function setProgress(pct, text) {
+    const wrap = document.getElementById('progressWrap');
+    const fill = document.getElementById('progressFill');
+    const label = document.getElementById('progressText');
+    if (text) {
+      wrap.style.display = 'block';
+      fill.style.width = pct + '%';
+      label.textContent = text;
+    } else {
+      wrap.style.display = 'none';
+      fill.style.width = '0%';
+      label.textContent = '';
+    }
   }
 
   function showStatus(id, type, msg) {
@@ -218,33 +285,63 @@
     el.textContent = msg;
   }
 
+  // --- Extract ---
   document.getElementById('extractBtn').addEventListener('click', async () => {
-    if (!currentFile) return;
+    if (!currentFiles.length) return;
     const btn = document.getElementById('extractBtn');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> กำลังดึงข้อมูล...';
-    showStatus('extractStatus', 'info', '⏳ กำลังส่งไฟล์ให้ AI วิเคราะห์ กรุณารอสักครู่...');
+    showStatus('extractStatus', 'info', '⏳ กำลังส่งไฟล์ให้ AI วิเคราะห์...');
+    document.getElementById('resultsCard').style.display = 'none';
 
-    try {
-      const form = new FormData();
-      form.append('file', currentFile);
-      const res = await fetch(API + '/api/extract', { method: 'POST', body: form });
-      const data = await res.json();
+    const allItems = [];
+    let companyName = '';
+    let errorCount = 0;
 
-      if (!res.ok || data.error) {
-        showStatus('extractStatus', 'error', '❌ ' + (data.error || 'เกิดข้อผิดพลาด'));
-        return;
+    for (let i = 0; i < currentFiles.length; i++) {
+      const file = currentFiles[i];
+      const pct = Math.round((i / currentFiles.length) * 100);
+      setProgress(pct, `กำลังดึงข้อมูล ${i + 1} / ${currentFiles.length}: ${file.name}`);
+      setFileStatus(i, '<span class="spinner-dark"></span>');
+      showStatus('extractStatus', 'info', `⏳ กำลังวิเคราะห์ไฟล์ที่ ${i + 1} / ${currentFiles.length}...`);
+
+      try {
+        const form = new FormData();
+        form.append('file', file);
+        const res = await fetch(API + '/api/extract', { method: 'POST', body: form });
+        const data = await res.json();
+
+        if (!res.ok || data.error) {
+          setFileStatus(i, '❌');
+          errorCount++;
+          console.warn('Error on file', file.name, data.error);
+        } else {
+          setFileStatus(i, `✅ ${(data.items||[]).length} รายการ`);
+          if (!companyName && data.company_name) companyName = data.company_name;
+          (data.items || []).forEach(item => allItems.push(item));
+        }
+      } catch (e) {
+        setFileStatus(i, '❌');
+        errorCount++;
+        console.warn('Network error on file', file.name, e);
       }
-
-      extractedData = data;
-      renderResults(data);
-      showStatus('extractStatus', 'success', '✅ ดึงข้อมูลสำเร็จ พบ ' + (data.items||[]).length + ' รายการ');
-    } catch (e) {
-      showStatus('extractStatus', 'error', '❌ ' + e.message);
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = '🔍 ดึงข้อมูลราคา';
     }
+
+    setProgress(100, `เสร็จสิ้น`);
+    setTimeout(() => setProgress(0, ''), 1500);
+
+    if (allItems.length === 0) {
+      showStatus('extractStatus', 'error', '❌ ไม่พบข้อมูลจากไฟล์ที่อัปโหลด');
+    } else {
+      extractedData = { company_name: companyName, items: allItems };
+      renderResults(extractedData);
+      let msg = `✅ ดึงข้อมูลสำเร็จ พบทั้งหมด ${allItems.length} รายการ จาก ${currentFiles.length - errorCount} ไฟล์`;
+      if (errorCount > 0) msg += ` (ล้มเหลว ${errorCount} ไฟล์)`;
+      showStatus('extractStatus', errorCount > 0 ? 'info' : 'success', msg);
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = '🔍 ดึงข้อมูลราคา';
   });
 
   function renderResults(data) {
@@ -257,16 +354,16 @@
     tbody.innerHTML = '';
     items.forEach((item, i) => {
       const tr = document.createElement('tr');
-      const pn = (item.product_name||'').replace(/"/g,'&quot;').replace(/</g,'&lt;');
-      const nt = (item.notes||'').replace(/"/g,'&quot;').replace(/</g,'&lt;');
-      tr.innerHTML = '<td><input type="text" value="' + pn + '" data-i="' + i + '" data-f="product_name"></td>' +
-        '<td><input type="number" value="' + (item.net_rate||item.net_price||0) + '" data-i="' + i + '" data-f="net_rate" style="text-align:right"></td>' +
-        '<td><input type="number" value="' + (item.selling_rate||item.public_rate||0) + '" data-i="' + i + '" data-f="selling_rate" style="text-align:right"></td>' +
-        '<td><input type="text" value="' + nt + '" data-i="' + i + '" data-f="notes"></td>' +
-        '<td><button class="del-btn" onclick="delRow(this)">✕</button></td>';
+      tr.innerHTML = `
+        <td><input type="text" value="${esc(item.product_name||'')}" data-i="${i}" data-f="product_name"></td>
+        <td><input type="number" value="${item.net_rate||item.net_price||0}" data-i="${i}" data-f="net_rate" style="text-align:right"></td>
+        <td><input type="number" value="${item.selling_rate||item.public_rate||0}" data-i="${i}" data-f="selling_rate" style="text-align:right"></td>
+        <td><input type="text" value="${esc(item.notes||'')}" data-i="${i}" data-f="notes"></td>
+        <td><button class="del-btn" onclick="delRow(this)">✕</button></td>`;
       tbody.appendChild(tr);
     });
 
+    // live edit
     tbody.querySelectorAll('input').forEach(inp => {
       inp.addEventListener('input', () => {
         const i = +inp.dataset.i, f = inp.dataset.f;
@@ -285,6 +382,9 @@
     renderResults(extractedData);
   }
 
+  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+
+  // --- Import to Sheet ---
   document.getElementById('importBtn').addEventListener('click', async () => {
     if (!extractedData) return;
     const btn = document.getElementById('importBtn');
@@ -301,14 +401,17 @@
       const data = await res.json();
 
       if (data.success) {
-        let msg = '✅ ' + data.message;
-        if (data.rows_skipped > 0) msg += ' (ข้ามซ้ำ ' + data.rows_skipped + ' รายการ)';
-        document.getElementById('importResult').innerHTML = '<div class="status success" style="display:block;margin-top:10px">' + msg + '</div>';
+        let msg = `✅ ${data.message}`;
+        if (data.rows_skipped > 0) msg += ` (ข้ามซ้ำ ${data.rows_skipped} รายการ)`;
+        document.getElementById('importResult').innerHTML =
+          `<div class="status success" style="display:block;margin-top:10px">${msg}</div>`;
       } else {
-        document.getElementById('importResult').innerHTML = '<div class="status error" style="display:block;margin-top:10px">❌ ' + (data.error||'เกิดข้อผิดพลาด') + '</div>';
+        document.getElementById('importResult').innerHTML =
+          `<div class="status error" style="display:block;margin-top:10px">❌ ${data.error||'เกิดข้อผิดพลาด'}</div>`;
       }
     } catch(e) {
-      document.getElementById('importResult').innerHTML = '<div class="status error" style="display:block;margin-top:10px">❌ ' + e.message + '</div>';
+      document.getElementById('importResult').innerHTML =
+        `<div class="status error" style="display:block;margin-top:10px">❌ ${e.message}</div>`;
     } finally {
       btn.disabled = false;
       btn.innerHTML = '📊 บันทึกเข้า Google Sheet';

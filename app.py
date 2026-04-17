@@ -239,7 +239,7 @@ Rules:
         key = (item.get("product_name", ""), str(item.get("net_rate", "")))
         if key not in seen:
             seen.add(key)
-  #         deduped.append(item)
+            deduped.append(item)
 
     return {"company_name": company_name, "items": deduped}
 

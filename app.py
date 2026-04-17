@@ -78,7 +78,7 @@ def extract():
     try:
         from PIL import Image as PILImage
 
-        print(f"[EXTRACT] file={filename!r} is_pdf={is_pdf} is_image={is_image} has_key={bool(api_key)}", flush=True)
+        print(f"[EXTRACT] file={filename!r} content_type={uploaded.content_type!r} is_pdf={is_pdf} is_image={is_image} has_key={bool(api_key)}", flush=True)
 
         if is_pdf:
             from pdf2image import convert_from_path
@@ -104,6 +104,68 @@ def extract():
         return jsonify({"error": str(e), "detail": traceback.format_exc()}), 500
     finally:
         os.unlink(tmp_path)
+
+
+def _extract_partial_items(text):
+    """Extract all complete item objects from a possibly-truncated JSON response.
+
+    When GPT hits max_tokens the JSON is cut mid-stream. This function walks the
+    text character-by-character to collect every *complete* {"product_name":...}
+    object that was emitted before the cut, so we never lose the data we did get.
+    Returns (items_list, company_name_str).
+    """
+    items = []
+    company_name = ""
+
+    company_match = re.search(r'"company_name"\s*:\s*"([^"]*)"', text)
+    if company_match:
+        company_name = company_match.group(1)
+
+    # Locate the start of the items array
+    items_key_pos = text.find('"items"')
+    if items_key_pos == -1:
+        return items, company_name
+
+    bracket_pos = text.find('[', items_key_pos)
+    if bracket_pos == -1:
+        return items, company_name
+
+    # Walk through characters after '[', collecting complete {...} objects at depth 1
+    depth = 0
+    item_start = -1
+    i = bracket_pos + 1
+
+    while i < len(text):
+        c = text[i]
+        if c == '"':
+            # Skip over string contents to avoid counting braces inside strings
+            i += 1
+            while i < len(text):
+                if text[i] == '\\':
+                    i += 2  # skip escaped character
+                    continue
+                if text[i] == '"':
+                    break
+                i += 1
+        elif c == '{':
+            if depth == 0:
+                item_start = i
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0 and item_start != -1:
+                try:
+                    obj = json.loads(text[item_start:i + 1])
+                    if 'product_name' in obj:
+                        items.append(obj)
+                except Exception:
+                    pass
+                item_start = -1
+        elif c == ']' and depth == 0:
+            break  # clean end of items array
+        i += 1
+
+    return items, company_name
 
 
 def extract_with_claude(images, api_key):
@@ -200,34 +262,80 @@ Rules:
 
         text = response.choices[0].message.content.strip()
         finish_reason = response.choices[0].finish_reason
-        print(f"[GPT] batch={batch_idx} finish={finish_reason!r} len={len(text)} preview={text[:100]!r}", flush=True)
+        print(f"[GPT] batch={batch_idx} finish_reason={finish_reason!r} response_len={len(text)} preview={text[:120]!r}", flush=True)
 
         # Detect refusal
         refusal_phrases = ["i'm sorry", "i cannot", "i can't", "unable to assist", "can't assist", "cannot assist"]
         if any(p in text.lower() for p in refusal_phrases) and "{" not in text:
-            print(f"[GPT] REFUSAL detected batch {batch_idx}", flush=True)
+            print(f"[GPT] REFUSAL detected, skipping batch {batch_idx}", flush=True)
             continue
 
         # Strip markdown code fences
         text = re.sub(r"^```(?:json)?\s*\n?", "", text, flags=re.MULTILINE)
         text = re.sub(r"\n?```\s*$", "", text, flags=re.MULTILINE).strip()
 
+        # If truncated (finish_reason='length'), request continuation
+        if finish_reason == "length":
+            print(f"[GPT] batch={batch_idx} TRUNCATED — requesting continuation", flush=True)
+            # Extract partial items so far, then ask GPT to continue
+            partial_items, partial_company = _extract_partial_items(text)
+            print(f"[GPT] Partial extraction before continuation: {len(partial_items)} items", flush=True)
+
+            # Build continuation request
+            continuation_prompt = (
+                f"You were extracting pricing data and your response was cut off. "
+                f"You have already listed {len(partial_items)} items ending with "
+                f"product_name={partial_items[-1].get('product_name','?')!r} if any. "
+                f"Continue listing ALL REMAINING items that you have NOT yet listed. "
+                f"Return ONLY a JSON object: {{\"items\": [...remaining items only...]}}. "
+                f"Do NOT repeat items you already listed. Extract every remaining row."
+            )
+            try:
+                cont_response = client.chat.completions.create(
+                    model="gpt-4o-2024-08-06",
+                    max_tokens=16000,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": content},
+                        {"role": "assistant", "content": text},
+                        {"role": "user", "content": continuation_prompt}
+                    ]
+                )
+                cont_text = cont_response.choices[0].message.content.strip()
+                cont_finish = cont_response.choices[0].finish_reason
+                cont_text = re.sub(r"^```(?:json)?\s*\n?", "", cont_text, flags=re.MULTILINE)
+                cont_text = re.sub(r"\n?```\s*$", "", cont_text, flags=re.MULTILINE).strip()
+                print(f"[GPT] Continuation finish={cont_finish!r} len={len(cont_text)}", flush=True)
+                try:
+                    cont_result = json.loads(cont_text)
+                    cont_items = cont_result.get("items", [])
+                except Exception:
+                    cont_items, _ = _extract_partial_items(cont_text)
+                print(f"[GPT] Continuation items: {len(cont_items)}", flush=True)
+                combined_items = partial_items + cont_items
+            except Exception as ce:
+                print(f"[GPT] Continuation call failed: {ce}", flush=True)
+                combined_items = partial_items
+
+            if batch_idx == 0 and not company_name:
+                company_name = partial_company or ""
+            all_items.extend(combined_items)
+            continue
+
         try:
             batch_result = json.loads(text)
-            print(f"[GPT] JSON OK: {len(batch_result.get('items',[]))} items", flush=True)
+            print(f"[GPT] JSON parse OK: {len(batch_result.get('items',[]))} items", flush=True)
         except json.JSONDecodeError as je:
-            print(f"[GPT] JSON FAIL: {je} tail={text[-80:]!r}", flush=True)
-            match = re.search(r"\{.*\}", text, re.DOTALL)
-            if match:
-                try:
-                    batch_result = json.loads(match.group())
-                    print(f"[GPT] regex fallback OK: {len(batch_result.get('items',[]))} items", flush=True)
-                except Exception as e2:
-                    print(f"[GPT] regex fallback FAIL: {e2}", flush=True)
-                    continue
+            print(f"[GPT] JSON parse FAILED: {je} — trying partial extraction, tail={text[-100:]!r}", flush=True)
+            partial_items, partial_company = _extract_partial_items(text)
+            if partial_items:
+                print(f"[GPT] Partial extraction rescued {len(partial_items)} items", flush=True)
+                if batch_idx == 0 and not company_name:
+                    company_name = partial_company or ""
+                all_items.extend(partial_items)
             else:
-                print(f"[GPT] no JSON found, skipping batch {batch_idx}", flush=True)
-                continue
+                print(f"[GPT] No items recovered, skipping batch {batch_idx}", flush=True)
+            continue
 
         if batch_idx == 0 and not company_name:
             company_name = batch_result.get("company_name", "")

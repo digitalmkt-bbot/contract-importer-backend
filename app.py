@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Contract Data Importer â Backend (Railway)
+Contract Data Importer — Backend (Railway)
 Love Andaman
 """
 
@@ -15,14 +15,14 @@ from io import BytesIO
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 
-# CORS â à¸­à¸à¸¸à¸à¸²à¸ frontend Vercel à¹à¸£à¸µà¸¢à¸ API à¹à¸à¹
+# CORS — อนุญาต frontend Vercel เรียก API ได้
 CORS(app, origins="*")
 
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1KWqJVYfoaRg3DwslW2zSQmPgScPbE9Z-0v-Ijwtdpms")
 SHEET_GID = int(os.environ.get("SHEET_GID", "384942453"))
 
 
-# âââ Health Check âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ─── Health Check ─────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
@@ -32,7 +32,7 @@ def index():
         return send_from_directory(app.static_folder, "index.html")
     return jsonify({
         "status": "ok",
-        "service": "Contract Importer API â Love Andaman",
+        "service": "Contract Importer API — Love Andaman",
         "has_api_key": bool(os.environ.get("OPENAI_API_KEY")),
         "has_credentials": bool(os.environ.get("GOOGLE_CREDENTIALS_JSON"))
     })
@@ -55,21 +55,21 @@ def status():
     })
 
 
-# âââ Extract ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ─── Extract ──────────────────────────────────────────────────────────────────
 
 @app.route("/api/extract", methods=["POST"])
 def extract():
-    # à¸£à¸±à¸à¸à¸±à¹à¸ "file" (à¹à¸«à¸¡à¹) à¹à¸¥à¸° "pdf" (à¹à¸à¹à¸²) à¹à¸à¸·à¹à¸­ backward-compatibility
+    # รับทั้ง "file" (ใหม่) และ "pdf" (เก่า) เพื่อ backward-compatibility
     uploaded = request.files.get("file") or request.files.get("pdf")
     if not uploaded:
-        return jsonify({"error": "à¹à¸¡à¹à¸à¸à¹à¸à¸¥à¹ (à¸ªà¹à¸à¹à¸à¹à¸ field à¸à¸·à¹à¸­ 'file')"}), 400
+        return jsonify({"error": "ไม่พบไฟล์ (ส่งเป็น field ชื่อ 'file')"}), 400
 
     api_key = os.environ.get("OPENAI_API_KEY", "")
     filename = (uploaded.filename or "").lower()
     is_pdf = filename.endswith(".pdf") or uploaded.content_type == "application/pdf"
     is_image = any(filename.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".webp"))
 
-    # à¸à¸±à¸à¸à¸¶à¸ temp file
+    # บันทึก temp file
     suffix = ".pdf" if is_pdf else os.path.splitext(filename)[1] or ".png"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         uploaded.save(tmp.name)
@@ -89,7 +89,7 @@ def extract():
             images = [img]
             print(f"[EXTRACT] Image size={img.size}", flush=True)
         else:
-            return jsonify({"error": "à¸£à¸­à¸à¸£à¸±à¸à¹à¸à¸à¸²à¸°à¹à¸à¸¥à¹ PDF, PNG, JPG, JPEG, WEBP à¹à¸à¹à¸²à¸à¸±à¹à¸"}), 400
+            return jsonify({"error": "รองรับเฉพาะไฟล์ PDF, PNG, JPG, JPEG, WEBP เท่านั้น"}), 400
 
         if api_key:
             result = extract_with_claude(images, api_key)
@@ -138,7 +138,7 @@ def _extract_partial_items(text):
     while i < len(text):
         c = text[i]
         if c == '"':
-            # Skip over string contents to avoid counting braces inside strings
+      2     # Skip over string contents to avoid counting braces inside strings
             i += 1
             while i < len(text):
                 if text[i] == '\\':
@@ -176,18 +176,18 @@ def extract_with_claude(images, api_key):
     system_prompt = (
         "You are a data extraction assistant for a travel agency's internal pricing system. "
         "Your job is to read tour operator rate sheets / price contracts and extract structured pricing data. "
-        "Always respond with valid JSON only â no markdown, no explanations."
+        "Always respond with valid JSON only — no markdown, no explanations."
     )
 
     user_prompt = """Extract ALL pricing data from this tour operator contract/rate sheet image(s).
-CRITICAL: You MUST extract EVERY SINGLE ROW that contains a price or rate â do NOT skip, summarize, or truncate any row.
+CRITICAL: You MUST extract EVERY SINGLE ROW that contains a price or rate — do NOT skip, summarize, or truncate any row.
 
 Return ONLY a JSON object in this exact format (no markdown code blocks, no extra text):
 {
   "company_name": "name of the tour operator / supplier company",
   "items": [
     {
-      "product_name": "Oneday Tour Type | Program Name | From â To | DEP. Time - ARR. Time | Passenger Type",
+      "product_name": "Oneday Tour Type | Program Name | From → To | DEP. Time - ARR. Time | Passenger Type",
       "net_rate": 1000,
       "selling_rate": 1500,
       "notes": "any other remarks or conditions"
@@ -197,47 +197,47 @@ Return ONLY a JSON object in this exact format (no markdown code blocks, no extr
 
 Rules:
 - company_name: the operator/supplier name (not the travel agent)
-- product_name: combine ALL available fields below, separated by " | " â include every piece of information found:
-    1. SECTION / BOAT TYPE header â CRITICAL: Many contracts have multiple sections separated by bold headers such as:
+- product_name: combine ALL available fields below, separated by " | " — include every piece of information found:
+    1. SECTION / BOAT TYPE header — CRITICAL: Many contracts have multiple sections separated by bold headers such as:
        "Big Boat", "Speed Boat", "Speedboat", "Big Boat Program", "Speed Boat Program",
-       "à¹à¸£à¸·à¸­à¹à¸«à¸à¹", "à¹à¸£à¸·à¸­à¹à¸£à¹à¸§", "Joint Tour", "Private Tour", "Standard", "Premium",
+       "เรือใหญ่", "เรือเร็ว", "Joint Tour", "Private Tour", "Standard", "Premium",
        "Oneday Tour", "Liveaboard", "Transfer", "Package", or any other section divider.
        You MUST include this header as the FIRST segment of product_name for EVERY row that falls under that section.
-       NEVER drop or omit the section/boat type header â it is what distinguishes one group of products from another.
-    2. Program name (e.g. "Phi Phi Island Tour", "Similan Diving Day Trip", "ATV Adventure") â always include
-    3. Route: departure point â destination (e.g. "Phuket â Phi Phi", "Khao Lak â Similan", "Krabi â Railay") â look for columns: From/To, From, Route, Departure Point, Origin/Destination â include if found
-    4. Departure & arrival time (e.g. "DEP. 07:30 - ARR. 17:00", "08:00-17:00", "Full Day", "Half Day AM") â look for columns: Time DEP.-ARR., Time, Schedule, Departure Time â include if found
-    5. PASSENGER TYPE / AGE RANGE â ALWAYS append as the LAST segment of product_name whenever the row has a specific passenger type or age category:
+       NEVER drop or omit the section/boat type header — it is what distinguishes one group of products from another.
+    2. Program name (e.g. "Phi Phi Island Tour", "Similan Diving Day Trip", "ATV Adventure") — always include
+    3. Route: departure point → destination (e.g. "Phuket → Phi Phi", "Khao Lak → Similan", "Krabi → Railay") — look for columns: From/To, From, Route, Departure Point, Origin/Destination — include if found
+    4. Departure & arrival time (e.g. "DEP. 07:30 - ARR. 17:00", "08:00-17:00", "Full Day", "Half Day AM") — look for columns: Time DEP.-ARR., Time, Schedule, Departure Time — include if found
+    5. PASSENGER TYPE / AGE RANGE — ALWAYS append as the LAST segment of product_name whenever the row has a specific passenger type or age category:
        - Use the exact label from the document: "Adult", "Child", "Infant", "CHD", "INF", "Pax 1-4", "Min 15 Pax", "Per Person", etc.
        - This is MANDATORY: every row that corresponds to a specific age group or pax tier MUST have that label at the end of product_name.
        - Do NOT put passenger type / age category in the notes field.
     Build product_name by joining only the fields that are actually present in the document.
     Examples (showing multi-section contract with Big Boat and Speed Boat sections):
-      "Big Boat | Phi Phi Island Tour | Phuket â Phi Phi | DEP. 08:00 - ARR. 17:00 | Adult"
-      "Big Boat | Phi Phi Island Tour | Phuket â Phi Phi | DEP. 08:00 - ARR. 17:00 | Child"
-      "Big Boat | Phi Phi Island Tour | Phuket â Phi Phi | DEP. 08:00 - ARR. 17:00 | Infant"
-      "Speed Boat | Phi Phi Island Tour | Phuket â Phi Phi | DEP. 07:30 - ARR. 17:30 | Adult"
-      "Speed Boat | Phi Phi Island Tour | Phuket â Phi Phi | DEP. 07:30 - ARR. 17:30 | Child"
-      "Speed Boat | Similan Day Trip | Khao Lak â Similan | DEP. 06:00 - ARR. 18:00 | Adult"
-      "Liveaboard | Similan Islands | Khao Lak â Similan | 2D1N | Adult"
-      "Transfer | Phuket Airport â Patong Hotel | 1-4 Pax"
-    Include as much detail as possible â do NOT omit section header, route, time, or passenger type if they appear anywhere in the row or surrounding headers.
+      "Big Boat | Phi Phi Island Tour | Phuket → Phi Phi | DEP. 08:00 - ARR. 17:00 | Adult"
+      "Big Boat | Phi Phi Island Tour | Phuket → Phi Phi | DEP. 08:00 - ARR. 17:00 | Child"
+      "Big Boat | Phi Phi Island Tour | Phuket → Phi Phi | DEP. 08:00 - ARR. 17:00 | Infant"
+      "Speed Boat | Phi Phi Island Tour | Phuket → Phi Phi | DEP. 07:30 - ARR. 17:30 | Adult"
+      "Speed Boat | Phi Phi Island Tour | Phuket → Phi Phi | DEP. 07:30 - ARR. 17:30 | Child"
+      "Speed Boat | Similan Day Trip | Khao Lak → Similan | DEP. 06:00 - ARR. 18:00 | Adult"
+      "Liveaboard | Similan Islands | Khao Lak → Similan | 2D1N | Adult"
+      "Transfer | Phuket Airport → Patong Hotel | 1-4 Pax"
+    Include as much detail as possible — do NOT omit section header, route, time, or passenger type if they appear anywhere in the row or surrounding headers.
 - net_rate: agent/net cost price in THB (number only). Look for: Net Rate, Net Price, Agent Rate, Net, Cost
 - selling_rate: retail/public price in THB. Look for: Selling Rate, Public Rate, Rack Rate, Adult Rate, Full Price. Use 0 if not found.
-- notes: CRITICAL â copy the COMPLETE, FULL, VERBATIM text from all remark/note/condition fields. Do NOT summarize, shorten, or omit any part. Extract and combine ALL of the following:
-    1. PAGE-LEVEL REMARK (MOST IMPORTANT): If the page has ANY general Remark / Note / à¸«à¸¡à¸²à¸¢à¹à¸«à¸à¸¸ / Condition section â whether at the bottom, top, side, or as a footnote block â that is NOT tied to a specific row, copy that ENTIRE TEXT into the notes of EVERY SINGLE product on that page. Every product must carry the page-level remark.
-    2. ROW-LEVEL REMARK: Also copy the ENTIRE TEXT from any per-row column named "Remark", "Remarks", "à¸«à¸¡à¸²à¸¢à¹à¸«à¸à¸¸", "Note", "Notes", "Condition", "Conditions", "Remark/Note" â paste every word exactly as written, including numbers, symbols, and line breaks (use space to join multiple lines).
-    3. "Extra Transfer" / "Extra Transfer Fee" â if the document has a section, row, or column for extra transfer cost/conditions relating to a product, copy that full value into the notes of the matching product row.
+- notes: CRITICAL — copy the COMPLETE, FULL, VERBATIM text from all remark/note/condition fields. Do NOT summarize, shorten, or omit any part. Extract and combine ALL of the following:
+    1. PAGE-LEVEL REMARK (MOST IMPORTANT): If the page has ANY general Remark / Note / หมายเหตุ / Condition section — whether at the bottom, top, side, or as a footnote block — that is NOT tied to a specific row, copy that ENTIRE TEXT into the notes of EVERY SINGLE product on that page. Every product must carry the page-level remark.
+    2. ROW-LEVEL REMARK: Also copy the ENTIRE TEXT from any per-row column named "Remark", "Remarks", "หมายเหตุ", "Note", "Notes", "Condition", "Conditions", "Remark/Note" — paste every word exactly as written, including numbers, symbols, and line breaks (use space to join multiple lines).
+    3. "Extra Transfer" / "Extra Transfer Fee" — if the document has a section, row, or column for extra transfer cost/conditions relating to a product, copy that full value into the notes of the matching product row.
     4. Any other special conditions NOT related to passenger type/age group (e.g. "Include transfer", "Min 2 pax", "Seasonal surcharge applies", "Valid Nov-Apr").
     Combine all applicable remark sources for each row with " | " separator.
-    IMPORTANT: Every product on a page that has a page-level remark MUST have that remark in its notes â never leave notes empty when any remark data exists on the page.
+    IMPORTANT: Every product on a page that has a page-level remark MUST have that remark in its notes — never leave notes empty when any remark data exists on the page.
 - MUST include ALL line items without exception: Adult, Child, Infant, every pax count variation, every category
-- If prices vary by passenger type or group size, each must be a SEPARATE item â with the type/tier appended to product_name
+- If prices vary by passenger type or group size, each must be a SEPARATE item — with the type/tier appended to product_name
 - If a table header applies to multiple rows below it, repeat the header info in each row's product_name
-- Do NOT stop early â extract until the LAST row of data on the page
+- Do NOT stop early — extract until the LAST row of data on the page
 - Return ONLY the JSON object"""
 
-    # Process 1 page per batch â maximum token budget per page for complete extraction
+    # Process 1 page per batch — maximum token budget per page for complete extraction
     all_items = []
     company_name = ""
     page_batches = [images[i:i+1] for i in range(0, len(images), 1)]
@@ -282,7 +282,7 @@ Rules:
 
         # If truncated (finish_reason='length'), request continuation
         if finish_reason == "length":
-            print(f"[GPT] batch={batch_idx} TRUNCATED â requesting continuation", flush=True)
+            print(f"[GPT] batch={batch_idx} TRUNCATED — requesting continuation", flush=True)
             # Extract partial items so far, then ask GPT to continue
             partial_items, partial_company = _extract_partial_items(text)
             print(f"[GPT] Partial extraction before continuation: {len(partial_items)} items", flush=True)
@@ -332,7 +332,7 @@ Rules:
             batch_result = json.loads(text)
             print(f"[GPT] JSON parse OK: {len(batch_result.get('items',[]))} items", flush=True)
         except json.JSONDecodeError as je:
-            print(f"[GPT] JSON parse FAILED: {je} â trying partial extraction, tail={text[-100:]!r}", flush=True)
+            print(f"[GPT] JSON parse FAILED: {je} — trying partial extraction, tail={text[-100:]!r}", flush=True)
             partial_items, partial_company = _extract_partial_items(text)
             if partial_items:
                 print(f"[GPT] Partial extraction rescued {len(partial_items)} items", flush=True)
@@ -389,7 +389,7 @@ def _extract_single_batch(client, system_prompt, user_prompt, images):
     # Detect refusal
     refusal_phrases = ["i'm sorry", "i cannot", "i can't", "unable to assist", "can't assist", "cannot assist"]
     if any(p in text.lower() for p in refusal_phrases) and "{" not in text:
-        raise ValueError(f"AI à¹à¸¡à¹à¸ªà¸²à¸¡à¸²à¸£à¸à¸­à¹à¸²à¸à¹à¸­à¸à¸ªà¸²à¸£à¸à¸µà¹à¹à¸à¹ à¸à¸£à¸¸à¸à¸²à¸¥à¸­à¸à¹à¸«à¸¡à¹à¸«à¸£à¸·à¸­à¹à¸à¹à¹à¸à¸¥à¹ PNG/JPG à¹à¸à¸ PDF")
+        raise ValueError(f"AI ไม่สามารถอ่านเอกสารนี้ได้ กรุณาลองใหม่หรือใช้ไฟล์ PNG/JPG แทน PDF")
 
     # Strip markdown code fences
     text = re.sub(r"^```(?:json)?\s*\n?", "", text, flags=re.MULTILINE)
@@ -401,7 +401,7 @@ def _extract_single_batch(client, system_prompt, user_prompt, images):
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             return json.loads(match.group())
-        raise ValueError(f"à¹à¸¡à¹à¸ªà¸²à¸¡à¸²à¸£à¸à¹à¸à¸¥à¸ JSON: {text[:300]}")
+        raise ValueError(f"ไม่สามารถแปลง JSON: {text[:300]}")
 
 
 def extract_with_ocr(images):
@@ -411,7 +411,7 @@ def extract_with_ocr(images):
         return {
             "company_name": "",
             "items": [],
-            "warning": "â ï¸ à¹à¸¡à¹à¸à¸ OPENAI_API_KEY â à¸à¸£à¸¸à¸à¸²à¸à¸±à¹à¸à¸à¹à¸² Environment Variable à¸à¸ Railway"
+            "warning": "⚠️ ไม่พบ OPENAI_API_KEY — กรุณาตั้งค่า Environment Variable บน Railway"
         }
 
     full_text = ""
@@ -419,7 +419,7 @@ def extract_with_ocr(images):
         full_text += pytesseract.image_to_string(img, lang="eng") + "\n"
 
     company = ""
-    for pattern in [r"Operator name[:\s]+([^\n\r]+)", r"à¸à¸£à¸´à¸©à¸±à¸[:\s]+([^\n\r]+)"]:
+    for pattern in [r"Operator name[:\s]+([^\n\r]+)", r"บริษัท[:\s]+([^\n\r]+)"]:
         m = re.search(pattern, full_text, re.IGNORECASE)
         if m:
             company = m.group(1).strip()
@@ -440,11 +440,11 @@ def extract_with_ocr(images):
     return {
         "company_name": company,
         "items": items[:30],
-        "warning": "â ï¸ à¹à¸à¹ OCR à¸à¸£à¸£à¸¡à¸à¸² à¸à¸£à¸¸à¸à¸²à¸à¸£à¸§à¸à¸ªà¸­à¸à¸à¹à¸­à¸¡à¸¹à¸¥à¸à¹à¸­à¸à¸à¸³à¹à¸à¹à¸²"
+        "warning": "⚠️ ใช้ OCR ธรรมดา กรุณาตรวจสอบข้อมูลก่อนนำเข้า"
     }
 
 
-# âââ Import to Sheets âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ─── Import to Sheets ─────────────────────────────────────────────────────────
 
 @app.route("/api/import-sheets", methods=["POST"])
 def import_sheets():
@@ -454,14 +454,14 @@ def import_sheets():
     spreadsheet_id = data.get("spreadsheet_id", SPREADSHEET_ID)
 
     if not items:
-        return jsonify({"error": "à¹à¸¡à¹à¸¡à¸µà¸à¹à¸­à¸¡à¸¹à¸¥à¸à¸µà¹à¸à¸°à¸à¸³à¹à¸à¹à¸²"}), 400
+        return jsonify({"error": "ไม่มีข้อมูลที่จะนำเข้า"}), 400
 
-    # à¸­à¹à¸²à¸ credentials à¸à¸²à¸ Environment Variable
+    # อ่าน credentials จาก Environment Variable
     creds_json_str = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
     if not creds_json_str:
         return jsonify({
-            "error": "à¹à¸¡à¹à¸à¸ GOOGLE_CREDENTIALS_JSON",
-            "help": "à¸à¸£à¸¸à¸à¸²à¸à¸±à¹à¸à¸à¹à¸² Environment Variable GOOGLE_CREDENTIALS_JSON à¸à¸ Railway"
+            "error": "ไม่พบ GOOGLE_CREDENTIALS_JSON",
+            "help": "กรุณาตั้งค่า Environment Variable GOOGLE_CREDENTIALS_JSON บน Railway"
         }), 400
 
     try:
@@ -478,7 +478,7 @@ def import_sheets():
         gc = gspread.authorize(creds)
         sh = gc.open_by_key(spreadsheet_id)
 
-        # à¸«à¸² worksheet à¸à¸²à¸¡ GID
+        # หา worksheet ตาม GID
         ws = None
         for worksheet in sh.worksheets():
             if worksheet.id == SHEET_GID:
@@ -488,8 +488,8 @@ def import_sheets():
             ws = sh.sheet1
 
         # Sheet column layout: E=Operator, F=List/Tour name, G=empty, H=Net Rate, I=Selling Rate, J=Profit(formula),
-        # K=Profit(%), L=Margin%, M=10%Commission, N-P=other cols, Q=Notes (à¸«à¸¡à¸²à¸¢à¹à¸«à¸à¸¸)
-        # NOTE: use ws.update() with explicit range E:Q â NOT append_rows()
+        # K=Profit(%), L=Margin%, M=10%Commission, N-P=other cols, Q=Notes (หมายเหตุ)
+        # NOTE: use ws.update() with explicit range E:Q — NOT append_rows()
         #       because append_rows() detects the table starting at col E and offsets all data by 4 cols.
 
         # Read all existing data for dedup + finding next empty row
@@ -520,21 +520,21 @@ def import_sheets():
             if k in existing_keys:
                 skipped.append(name)
             else:
-                # Write directly to E:Q â NO A-D padding needed when using ws.update()
+                # Write directly to E:Q — NO A-D padding needed when using ws.update()
                 rows.append([
                     company,   # col E = Operator name
                     name,      # col F = Product / tour name
                     "",        # col G (empty)
                     item.get("net_rate", item.get("net_price", "")),   # col H = Net Rate
                     item.get("selling_rate", item.get("public_rate", item.get("cost", ""))),  # col I = Selling Rate
-                    "",        # col J = Profit amount (leave blank â formula fills this)
-                    "",        # col K = Profit% (leave blank â formula fills this)
-                    "",        # col L = Margin% (leave blank â formula fills this)
-                    "",        # col M = 10% Commission (leave blank â formula fills this)
+                    "",        # col J = Profit amount (leave blank — formula fills this)
+                    "",        # col K = Profit% (leave blank — formula fills this)
+                    "",        # col L = Margin% (leave blank — formula fills this)
+                    "",        # col M = 10% Commission (leave blank — formula fills this)
                     "",        # col N (empty)
                     "",        # col O (empty)
                     "",        # col P (empty)
-                    item.get("notes", "")  # col Q = Notes (à¸«à¸¡à¸²à¸¢à¹à¸«à¸à¸¸)
+                    item.get("notes", "")  # col Q = Notes (หมายเหตุ)
                 ])
                 existing_keys.add(k)
 
@@ -542,12 +542,12 @@ def import_sheets():
             end_row = next_row + len(rows) - 1
             ws.update(f"E{next_row}:Q{end_row}", rows, value_input_option="USER_ENTERED")
 
-        skip_msg = f" (à¸à¹à¸²à¸¡à¸à¹à¸³ {len(skipped)} à¸£à¸²à¸¢à¸à¸²à¸£)" if skipped else ""
+        skip_msg = f" (ข้ามซ้ำ {len(skipped)} รายการ)" if skipped else ""
         return jsonify({
             "success": True,
             "rows_added": len(rows),
             "rows_skipped": len(skipped),
-            "message": f"â à¸à¸³à¹à¸à¹à¸²à¸à¹à¸­à¸¡à¸¹à¸¥à¸ªà¸³à¹à¸£à¹à¸ {len(rows)} à¸£à¸²à¸¢à¸à¸²à¸£{skip_msg}"
+            "message": f"✅ นำเข้าข้อมูลสำเร็จ {len(rows)} รายการ{skip_msg}"
         })
 
     except Exception as e:
@@ -555,7 +555,7 @@ def import_sheets():
         return jsonify({"error": str(e), "detail": traceback.format_exc()}), 500
 
 
-# âââ Start ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ─── Start ────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

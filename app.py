@@ -156,12 +156,13 @@ Rules:
     Include as much detail as possible — do NOT omit route, time, or passenger type if they appear anywhere in the row or header.
 - net_rate: agent/net cost price in THB (number only). Look for: Net Rate, Net Price, Agent Rate, Net, Cost
 - selling_rate: retail/public price in THB. Look for: Selling Rate, Public Rate, Rack Rate, Adult Rate, Full Price. Use 0 if not found.
-- notes: CRITICAL — copy the COMPLETE, FULL, VERBATIM text from all remark/note/condition fields for each row. Do NOT summarize, shorten, or omit any part of the remark text. Extract and combine ALL of the following:
-    1. COPY THE ENTIRE TEXT from any column named "Remark", "Remarks", "หมายเหตุ", "Note", "Notes", "Condition", "Conditions", "Remark/Note" — paste every word exactly as written, including numbers, symbols, and line breaks (use space to join multiple lines)
-    2. "Extra Transfer" / "Extra Transfer Fee" — if the document has a section, row, or column for extra transfer cost/conditions relating to a product, copy that full value into the notes of the matching product row (match by product name, tour type, or proximity in the table)
-    3. Any other special conditions NOT related to passenger type/age group (e.g. "Include transfer", "Min 2 pax", "Seasonal surcharge applies", "Valid Nov-Apr")
-    If multiple remark values exist for a row, join them with " | ". If the remark cell is empty or the column does not exist, leave notes as empty string.
-    IMPORTANT: Every row that has ANY text in a Remark/Note/Condition column MUST have that text in its notes field — never leave notes empty when remark data exists.
+- notes: CRITICAL — copy the COMPLETE, FULL, VERBATIM text from all remark/note/condition fields. Do NOT summarize, shorten, or omit any part. Extract and combine ALL of the following:
+    1. PAGE-LEVEL REMARK (MOST IMPORTANT): If the page has ANY general Remark / Note / หมายเหตุ / Condition section — whether at the bottom, top, side, or as a footnote block — that is NOT tied to a specific row, copy that ENTIRE TEXT into the notes of EVERY SINGLE product on that page. Every product must carry the page-level remark.
+    2. ROW-LEVEL REMARK: Also copy the ENTIRE TEXT from any per-row column named "Remark", "Remarks", "หมายเหตุ", "Note", "Notes", "Condition", "Conditions", "Remark/Note" — paste every word exactly as written, including numbers, symbols, and line breaks (use space to join multiple lines).
+    3. "Extra Transfer" / "Extra Transfer Fee" — if the document has a section, row, or column for extra transfer cost/conditions relating to a product, copy that full value into the notes of the matching product row.
+    4. Any other special conditions NOT related to passenger type/age group (e.g. "Include transfer", "Min 2 pax", "Seasonal surcharge applies", "Valid Nov-Apr").
+    Combine all applicable remark sources for each row with " | " separator.
+    IMPORTANT: Every product on a page that has a page-level remark MUST have that remark in its notes — never leave notes empty when any remark data exists on the page.
 - MUST include ALL line items without exception: Adult, Child, Infant, every pax count variation, every category
 - If prices vary by passenger type or group size, each must be a SEPARATE item — with the type/tier appended to product_name
 - If a table header applies to multiple rows below it, repeat the header info in each row's product_name

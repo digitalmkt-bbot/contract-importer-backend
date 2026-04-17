@@ -78,12 +78,16 @@ def extract():
     try:
         from PIL import Image as PILImage
 
+        print(f"[EXTRACT] file={filename!r} is_pdf={is_pdf} is_image={is_image} has_key={bool(api_key)}", flush=True)
+
         if is_pdf:
             from pdf2image import convert_from_path
             images = convert_from_path(tmp_path, dpi=150)
+            print(f"[EXTRACT] PDF pages={len(images)}", flush=True)
         elif is_image:
             img = PILImage.open(tmp_path).convert("RGB")
             images = [img]
+            print(f"[EXTRACT] Image size={img.size}", flush=True)
         else:
             return jsonify({"error": "รองรับเฉพาะไฟล์ PDF, PNG, JPG, JPEG, WEBP เท่านั้น"}), 400
 
@@ -92,6 +96,7 @@ def extract():
         else:
             result = extract_with_ocr(images)
 
+        print(f"[EXTRACT] done: company={result.get('company_name')!r} items={len(result.get('items',[]))}", flush=True)
         return jsonify(result)
 
     except Exception as e:
@@ -193,10 +198,13 @@ Rules:
         )
 
         text = response.choices[0].message.content.strip()
+        finish_reason = response.choices[0].finish_reason
+        print(f"[GPT] batch={batch_idx} finish={finish_reason!r} len={len(text)} preview={text[:100]!r}", flush=True)
 
         # Detect refusal
         refusal_phrases = ["i'm sorry", "i cannot", "i can't", "unable to assist", "can't assist", "cannot assist"]
         if any(p in text.lower() for p in refusal_phrases) and "{" not in text:
+            print(f"[GPT] REFUSAL detected batch {batch_idx}", flush=True)
             continue
 
         # Strip markdown code fences
@@ -205,14 +213,19 @@ Rules:
 
         try:
             batch_result = json.loads(text)
-        except json.JSONDecodeError:
+            print(f"[GPT] JSON OK: {len(batch_result.get('items',[]))} items", flush=True)
+        except json.JSONDecodeError as je:
+            print(f"[GPT] JSON FAIL: {je} tail={text[-80:]!r}", flush=True)
             match = re.search(r"\{.*\}", text, re.DOTALL)
             if match:
                 try:
                     batch_result = json.loads(match.group())
-                except Exception:
+                    print(f"[GPT] regex fallback OK: {len(batch_result.get('items',[]))} items", flush=True)
+                except Exception as e2:
+                    print(f"[GPT] regex fallback FAIL: {e2}", flush=True)
                     continue
             else:
+                print(f"[GPT] no JSON found, skipping batch {batch_idx}", flush=True)
                 continue
 
         if batch_idx == 0 and not company_name:

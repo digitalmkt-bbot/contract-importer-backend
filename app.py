@@ -82,7 +82,7 @@ def extract():
 
         if is_pdf:
             from pdf2image import convert_from_path
-            images = convert_from_path(tmp_path, dpi=150)
+            images = convert_from_path(tmp_path, dpi=200)
             print(f"[EXTRACT] PDF pages={len(images)}", flush=True)
         elif is_image:
             img = PILImage.open(tmp_path).convert("RGB")
@@ -138,7 +138,7 @@ def _extract_partial_items(text):
     while i < len(text):
         c = text[i]
         if c == '"':
-      2     # Skip over string contents to avoid counting braces inside strings
+            # Skip over string contents to avoid counting braces inside strings
             i += 1
             while i < len(text):
                 if text[i] == '\\':
@@ -246,7 +246,7 @@ Rules:
         content = []
         for img in batch:
             buffer = BytesIO()
-            img.save(buffer, format="JPEG", quality=85)
+            img.save(buffer, format="JPEG", quality=95)
             img_data = base64.b64encode(buffer.getvalue()).decode()
             content.append({
                 "type": "image_url",
@@ -280,52 +280,57 @@ Rules:
         text = re.sub(r"^```(?:json)?\s*\n?", "", text, flags=re.MULTILINE)
         text = re.sub(r"\n?```\s*$", "", text, flags=re.MULTILINE).strip()
 
-        # If truncated (finish_reason='length'), request continuation
+        # If truncated (finish_reason='length'), request continuation (loop up to 5 times)
         if finish_reason == "length":
-            print(f"[GPT] batch={batch_idx} TRUNCATED — requesting continuation", flush=True)
-            # Extract partial items so far, then ask GPT to continue
+            print(f"[GPT] batch={batch_idx} TRUNCATED — requesting continuation loop", flush=True)
             partial_items, partial_company = _extract_partial_items(text)
             print(f"[GPT] Partial extraction before continuation: {len(partial_items)} items", flush=True)
 
-            # Build continuation request
-            continuation_prompt = (
-                f"You were extracting pricing data and your response was cut off. "
-                f"You have already listed {len(partial_items)} items ending with "
-                f"product_name={partial_items[-1].get('product_name','?')!r} if any. "
-                f"Continue listing ALL REMAINING items that you have NOT yet listed. "
-                f"Return ONLY a JSON object: {{\"items\": [...remaining items only...]}}. "
-                f"Do NOT repeat items you already listed. Extract every remaining row."
-            )
-            try:
-                cont_response = client.chat.completions.create(
-                    model="gpt-4o-2024-08-06",
-                    max_tokens=16000,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": content},
-                        {"role": "assistant", "content": text},
-                        {"role": "user", "content": continuation_prompt}
-                    ]
+            all_cont_items = list(partial_items)
+            conversation = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": content},
+                {"role": "assistant", "content": text},
+            ]
+
+            for cont_round in range(5):
+                last_item = all_cont_items[-1] if all_cont_items else {}
+                continuation_prompt = (
+                    f"Your previous response was cut off. You have extracted {len(all_cont_items)} items so far. "
+                    f"The last item extracted was product_name={last_item.get('product_name','(none)')!r}. "
+                    f"Continue from AFTER that item — list ALL REMAINING rows you have NOT yet output. "
+                    f"Return ONLY: {{\"items\": [...remaining items only...]}}. "
+                    f"Do NOT repeat any item already listed. If no more items remain, return {{\"items\": []}}."
                 )
-                cont_text = cont_response.choices[0].message.content.strip()
-                cont_finish = cont_response.choices[0].finish_reason
-                cont_text = re.sub(r"^```(?:json)?\s*\n?", "", cont_text, flags=re.MULTILINE)
-                cont_text = re.sub(r"\n?```\s*$", "", cont_text, flags=re.MULTILINE).strip()
-                print(f"[GPT] Continuation finish={cont_finish!r} len={len(cont_text)}", flush=True)
                 try:
-                    cont_result = json.loads(cont_text)
-                    cont_items = cont_result.get("items", [])
-                except Exception:
-                    cont_items, _ = _extract_partial_items(cont_text)
-                print(f"[GPT] Continuation items: {len(cont_items)}", flush=True)
-                combined_items = partial_items + cont_items
-            except Exception as ce:
-                print(f"[GPT] Continuation call failed: {ce}", flush=True)
-                combined_items = partial_items
+                    conversation.append({"role": "user", "content": continuation_prompt})
+                    cont_response = client.chat.completions.create(
+                        model="gpt-4o-2024-08-06",
+                        max_tokens=16000,
+                        messages=conversation
+                    )
+                    cont_text = cont_response.choices[0].message.content.strip()
+                    cont_finish = cont_response.choices[0].finish_reason
+                    cont_text = re.sub(r"^```(?:json)?\s*\n?", "", cont_text, flags=re.MULTILINE)
+                    cont_text = re.sub(r"\n?```\s*$", "", cont_text, flags=re.MULTILINE).strip()
+                    print(f"[GPT] Continuation round={cont_round} finish={cont_finish!r} len={len(cont_text)}", flush=True)
+                    conversation.append({"role": "assistant", "content": cont_text})
+                    try:
+                        cont_result = json.loads(cont_text)
+                        cont_items = cont_result.get("items", [])
+                    except Exception:
+                        cont_items, _ = _extract_partial_items(cont_text)
+                    print(f"[GPT] Continuation round={cont_round} items: {len(cont_items)}", flush=True)
+                    all_cont_items.extend(cont_items)
+                    if cont_finish != "length" or not cont_items:
+                        break  # done — no more truncation or no new items
+                except Exception as ce:
+                    print(f"[GPT] Continuation round={cont_round} failed: {ce}", flush=True)
+                    break
 
             if batch_idx == 0 and not company_name:
                 company_name = partial_company or ""
-            all_items.extend(combined_items)
+            all_items.extend(all_cont_items)
             continue
 
         try:
@@ -525,7 +530,7 @@ def import_sheets():
                     company,   # col E = Operator name
                     name,      # col F = Product / tour name
                     "",        # col G (empty)
-                    item.get("net_rate", item.get("net_price", "")),   # col H = Net Rate
+                    item.get("net_rate", item.get("net_price", "")),  # col H = Net Rate
                     item.get("selling_rate", item.get("public_rate", item.get("cost", ""))),  # col I = Selling Rate
                     "",        # col J = Profit amount (leave blank — formula fills this)
                     "",        # col K = Profit% (leave blank — formula fills this)
@@ -539,7 +544,7 @@ def import_sheets():
                 existing_keys.add(k)
 
         if rows:
-            end_row = next_row + len(rows) - 1
+             end_row = next_row + len(rows) - 1
             ws.update(f"E{next_row}:Q{end_row}", rows, value_input_option="USER_ENTERED")
 
         skip_msg = f" (ข้ามซ้ำ {len(skipped)} รายการ)" if skipped else ""
@@ -560,4 +565,3 @@ def import_sheets():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
-

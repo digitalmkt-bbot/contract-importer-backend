@@ -255,7 +255,9 @@ Rules:
       - For each area row × each price column, create ONE item
       - product_name MUST include: column header (boat type / transfer method / vehicle type) + "Transfer" (or the section title) + the area text + the pricing unit (e.g. "Per Person", "Per Van", "1-4 Pax")
       - departure_time MUST combine the row's pickup time with the column's boat/service departure time: "PICKUP 07:00-07:15 | DEP. 08:45"
-      - net_rate = the number in that specific cell. If the cell shows "NO SERVICE", "-", "N/A", or is blank → SKIP that cell (do NOT emit an item for it)
+      - If the pickup cell contains descriptive text instead of a time (e.g. "According to boat arrival time", "By request", "Upon confirmation"), use that text VERBATIM as the pickup value: "PICKUP According to boat arrival time | DEP. 08:45"
+      - If a single descriptive pickup cell SPANS multiple boat columns (merged cell), apply the same pickup text to every boat type — emit one item per boat × transfer method
+      - net_rate = the number in that specific PRICE cell (Join Transfer or Private Van column). If the PRICE cell shows "NO SERVICE", "-", "N/A", or is blank → SKIP that specific cell (do NOT emit an item for it). Do NOT treat pickup-time cells as price cells.
       - notes: include the area description, pricing unit ("PRICE/PERSON/WAY", "PRICE/VAN/WAY"), max capacity ("Max 10 person/van"), and any page-level remarks
     Example — for a row "Rawai/Naiharn: Big Boat pickup 7:00, Speed Boat pickup 7:30, Join Transfer 200/pax, Private Van 800/way":
       → "Transfer | Big Boat | Rawai/Naiharn → Sea Angel Pier | Join Transfer — Per Person" with departure_time "PICKUP 7:00 | DEP. 08:45" net_rate 200

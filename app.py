@@ -523,8 +523,8 @@ def import_sheets():
         if ws is None:
             ws = sh.sheet1
 
-        # Sheet column layout: E=Operator, F=List/Tour name, G=Departure/Arrival Time, H=Net Rate, I=Selling Rate, J=Profit(formula),
-        # K=Profit(%), L=Margin%, M=10%Commission, N-P=other cols, Q=Notes (หมายเหตุ)
+        # Sheet column layout: E=Operator, F=Product name (incl. departure time appended), G=Net Rate, H=Selling Rate,
+        # I=Profit(formula), J=Profit(%), K=Margin%, L=10%Commission, M-P=other cols, Q=Notes (หมายเหตุ)
         # NOTE: use ws.update() with explicit range E:Q — NOT append_rows()
         #       because append_rows() detects the table starting at col E and offsets all data by 4 cols.
 
@@ -552,24 +552,27 @@ def import_sheets():
         skipped = []
         for item in items:
             name = item.get("product_name", "")
-            k = (company.strip() + "|" + name.strip()).lower()
+            dt = (item.get("departure_time") or "").strip()
+            # Append departure/pickup time to product name so it lives in column F
+            name_full = f"{name} | {dt}" if dt and name else (dt or name)
+            k = (company.strip() + "|" + name_full.strip()).lower()
             if k in existing_keys:
-                skipped.append(name)
+                skipped.append(name_full)
             else:
                 # Write directly to E:Q — NO A-D padding needed when using ws.update()
                 rows.append([
-                    company,   # col E = Operator name
-                    name,      # col F = Product / tour name
-                    item.get("departure_time", ""),  # col G = Departure/Arrival Time
-                    item.get("net_rate", item.get("net_price", "")),  # col H = Net Rate
-                    item.get("selling_rate", item.get("public_rate", item.get("cost", ""))),  # col I = Selling Rate
-                    "",        # col J = Profit amount (leave blank — formula fills this)
-                    "",        # col K = Profit% (leave blank — formula fills this)
-                    "",        # col L = Margin% (leave blank — formula fills this)
-                    "",        # col M = 10% Commission (leave blank — formula fills this)
-                    "",        # col N (empty)
-                    "",        # col O (empty)
-                    "",        # col P (empty)
+                    company,        # col E = Operator name
+                    name_full,      # col F = Product / tour name (incl. departure time)
+                    item.get("net_rate", item.get("net_price", "")),                                # col G = Net Rate
+                    item.get("selling_rate", item.get("public_rate", item.get("cost", ""))),        # col H = Selling Rate
+                    "",             # col I = Profit amount (leave blank — formula fills this)
+                    "",             # col J = Profit% (leave blank — formula fills this)
+                    "",             # col K = Margin% (leave blank — formula fills this)
+                    "",             # col L = 10% Commission (leave blank — formula fills this)
+                    "",             # col M (empty)
+                    "",             # col N (empty)
+                    "",             # col O (empty)
+                    "",             # col P (empty)
                     item.get("notes", "")  # col Q = Notes (หมายเหตุ)
                 ])
                 existing_keys.add(k)

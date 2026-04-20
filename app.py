@@ -223,11 +223,12 @@ Rules:
       "Transfer | Phuket Airport → Patong Hotel | 1-4 Pax"
     Include as much detail as possible — do NOT omit section header, route, or passenger type if they appear anywhere in the row or surrounding headers.
 - departure_time: extract the departure/arrival time as a SEPARATE field — do NOT embed it in product_name.
-    Look for columns: Time DEP.-ARR., Time, Schedule, Departure Time, เวลา, ออกเดินทาง
+    Look for columns: Time DEP.-ARR., Time, Schedule, Departure Time, Pick-up Time, เวลา, ออกเดินทาง, เวลารับ
     Format: "DEP. HH:MM - ARR. HH:MM" — use the exact values from the document.
     If only departure time is shown (no arrival), use: "DEP. HH:MM"
     If the row says Full Day / Half Day / duration only (e.g. "Full Day", "Half Day AM", "2D1N"), put that in departure_time.
     CRITICAL: If the same tour/program has MULTIPLE departure times with DIFFERENT prices, each time MUST be a SEPARATE item with its own departure_time value.
+    TRANSFER TABLES: if the table has a "Pick-up Time" column PLUS a boat departure time in the column header (e.g. header says "BIG BOAT — Dep. 8:45" and the row shows pickup 07:00-07:15), combine them as: "PICKUP 07:00-07:15 | DEP. 08:45".
     If no time is found for a row, use "" (empty string).
 - net_rate: agent/net cost price in THB (number only). Look for: Net Rate, Net Price, Agent Rate, Net, Cost
 - selling_rate: retail/public price in THB. Look for: Selling Rate, Public Rate, Rack Rate, Adult Rate, Full Price. Use 0 if not found.
@@ -242,6 +243,27 @@ Rules:
 - If prices vary by passenger type or group size, each must be a SEPARATE item — with the type/tier appended to product_name
 - If a table header applies to multiple rows below it, repeat the header info in each row's product_name
 - Do NOT stop early — extract until the LAST row of data on the page
+
+- CRITICAL — MATRIX / CROSS-TABULATED TABLES (transfer pages, per-area rate sheets, etc.):
+    Some pages have a GRID where ROWS = one dimension (e.g. pickup area, region, hotel zone) and COLUMNS = another dimension (e.g. boat type, transfer method, vehicle type, season).
+    You MUST emit ONE SEPARATE item for EVERY non-empty CELL in the grid — i.e. rows × columns = total items.
+    Common signals this is a matrix table:
+      - Multiple price columns with different headers like "BIG BOAT / SPEED BOAT", "JOIN TRANSFER / PRIVATE VAN", "Adult / Child / Infant", "Low / High / Peak Season"
+      - A header row with sub-headers (e.g. "BIG BOAT — Dep. 8:45" above one column, "SPEED BOAT — Dep. 9:30" above another)
+      - An "Area" or "From/To" column listing multiple pickup/dropoff zones
+    How to expand:
+      - For each area row × each price column, create ONE item
+      - product_name MUST include: column header (boat type / transfer method / vehicle type) + "Transfer" (or the section title) + the area text + the pricing unit (e.g. "Per Person", "Per Van", "1-4 Pax")
+      - departure_time MUST combine the row's pickup time with the column's boat/service departure time: "PICKUP 07:00-07:15 | DEP. 08:45"
+      - net_rate = the number in that specific cell. If the cell shows "NO SERVICE", "-", "N/A", or is blank → SKIP that cell (do NOT emit an item for it)
+      - notes: include the area description, pricing unit ("PRICE/PERSON/WAY", "PRICE/VAN/WAY"), max capacity ("Max 10 person/van"), and any page-level remarks
+    Example — for a row "Rawai/Naiharn: Big Boat pickup 7:00, Speed Boat pickup 7:30, Join Transfer 200/pax, Private Van 800/way":
+      → "Transfer | Big Boat | Rawai/Naiharn → Sea Angel Pier | Join Transfer — Per Person" with departure_time "PICKUP 7:00 | DEP. 08:45" net_rate 200
+      → "Transfer | Big Boat | Rawai/Naiharn → Sea Angel Pier | Private Van (Max 10 pax) — Per Way" with departure_time "PICKUP 7:00 | DEP. 08:45" net_rate 800
+      → "Transfer | Speed Boat | Rawai/Naiharn → Sea Angel Pier | Join Transfer — Per Person" with departure_time "PICKUP 7:30 | DEP. 09:30" net_rate 200
+      → "Transfer | Speed Boat | Rawai/Naiharn → Sea Angel Pier | Private Van (Max 10 pax) — Per Way" with departure_time "PICKUP 7:30 | DEP. 09:30" net_rate 800
+    Do NOT collapse or merge cells. Every non-empty priced cell = one item.
+
 - Return ONLY the JSON object"""
 
     # Process 1 page per batch — maximum token budget per page for complete extraction

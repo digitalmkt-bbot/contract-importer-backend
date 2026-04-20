@@ -358,13 +358,13 @@
         <td><input type="text" value="${esc(item.product_name||'')}" data-i="${i}" data-f="product_name"></td>
         <td><input type="number" value="${item.net_rate||item.net_price||0}" data-i="${i}" data-f="net_rate" style="text-align:right"></td>
         <td><input type="number" value="${item.selling_rate||item.public_rate||0}" data-i="${i}" data-f="selling_rate" style="text-align:right"></td>
-        <td><input type="text" value="${esc(item.notes||'')}" data-i="${i}" data-f="notes"></td>
+        <td><textarea data-i="${i}" data-f="notes" rows="3" style="width:100%;min-height:60px;resize:vertical;font-family:inherit;font-size:inherit;padding:6px 8px;border-radius:6px;border:1px solid #cbd5e0;box-sizing:border-box;white-space:pre-wrap">${esc(item.notes||'')}</textarea></td>
         <td><button class="del-btn" onclick="delRow(this)">✕</button></td>`;
       tbody.appendChild(tr);
     });
 
-    // live edit
-    tbody.querySelectorAll('input').forEach(inp => {
+    // live edit — covers both <input> and <textarea>
+    tbody.querySelectorAll('input, textarea').forEach(inp => {
       inp.addEventListener('input', () => {
         const i = +inp.dataset.i, f = inp.dataset.f;
         extractedData.items[i][f] = inp.type === 'number' ? +inp.value : inp.value;

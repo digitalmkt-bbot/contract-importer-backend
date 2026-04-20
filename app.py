@@ -232,13 +232,16 @@ Rules:
     If no time is found for a row, use "" (empty string).
 - net_rate: agent/net cost price in THB (number only). Look for: Net Rate, Net Price, Agent Rate, Net, Cost
 - selling_rate: retail/public price in THB. Look for: Selling Rate, Public Rate, Rack Rate, Adult Rate, Full Price. Use 0 if not found.
-- notes: CRITICAL — copy the COMPLETE, FULL, VERBATIM text from all remark/note/condition fields. Do NOT summarize, shorten, or omit any part. Extract and combine ALL of the following:
-    1. PAGE-LEVEL REMARK (MOST IMPORTANT): If the page has ANY general Remark / Note / หมายเหตุ / Condition section — whether at the bottom, top, side, or as a footnote block — that is NOT tied to a specific row, copy that ENTIRE TEXT into the notes of EVERY SINGLE product on that page. Every product must carry the page-level remark.
-    2. ROW-LEVEL REMARK: Also copy the ENTIRE TEXT from any per-row column named "Remark", "Remarks", "หมายเหตุ", "Note", "Notes", "Condition", "Conditions", "Remark/Note" — paste every word exactly as written, including numbers, symbols, and line breaks (use space to join multiple lines).
-    3. "Extra Transfer" / "Extra Transfer Fee" — if the document has a section, row, or column for extra transfer cost/conditions relating to a product, copy that full value into the notes of the matching product row.
-    4. Any other special conditions NOT related to passenger type/age group (e.g. "Include transfer", "Min 2 pax", "Seasonal surcharge applies", "Valid Nov-Apr").
-    Combine all applicable remark sources for each row with " | " separator.
-    IMPORTANT: Every product on a page that has a page-level remark MUST have that remark in its notes — never leave notes empty when any remark data exists on the page.
+- notes: CRITICAL — the notes field is the ONE AND ONLY place where Remark / Note / Condition text belongs. It MUST contain the COMPLETE, FULL, VERBATIM text from every remark/note/condition source on the page. Do NOT summarize, shorten, paraphrase, or omit any part. Do NOT place remark text in product_name, departure_time, or any other field.
+    ABSOLUTE RULE: If the document has text labeled "Remark", "Remarks", "REMARK", "หมายเหตุ", "หมายเหตุ:", "Note", "Notes", "Condition", "Conditions", "Terms", "T&C", "Special Condition", "เงื่อนไข", footnote markers (*, **, ¹, ²), or any other annotation block — ALL of that text MUST appear in the notes field. Nothing should be dropped.
+    Extract and combine ALL of the following sources into notes (joined with " | "):
+    1. PAGE-LEVEL REMARK (MOST IMPORTANT): If the page has ANY general Remark / Note / หมายเหตุ / Condition section — whether at the bottom, top, side, a footnote block, a boxed callout, or free-floating text below the rate table — that is NOT tied to a specific row, copy that ENTIRE TEXT into the notes of EVERY SINGLE product on that page. Every product must carry the page-level remark. NEVER leave notes blank while page-level remarks exist.
+    2. ROW-LEVEL REMARK: Also copy the ENTIRE TEXT from any per-row column named "Remark", "Remarks", "หมายเหตุ", "Note", "Notes", "Condition", "Conditions", "Remark/Note" — paste every word exactly as written, including numbers, symbols, bullet points, and line breaks (use a single space to join multiple lines).
+    3. FOOTNOTES: If the row or table uses a footnote marker (e.g. "*", "**", "¹") that references text elsewhere on the page, copy that referenced footnote text into the notes of every row that carries the marker.
+    4. "Extra Transfer" / "Extra Transfer Fee": if the document has a section, row, or column for extra transfer cost/conditions relating to a product, copy that full value into the notes of the matching product row.
+    5. Any other special conditions NOT related to passenger type/age group (e.g. "Include transfer", "Min 2 pax", "Seasonal surcharge applies", "Valid Nov-Apr", "Not valid on public holidays", "Surcharge Peak 15 Dec–15 Jan +500", "Black-out dates").
+    6. Operating dates / validity period text (e.g. "Valid 1 Nov 2025 – 31 Oct 2026", "Seasonal: Nov–Apr only") — include verbatim in every product's notes on that page.
+    IMPORTANT: The notes field is allowed — and expected — to be very long. Preserve the full text; do NOT truncate. Every product on a page that has ANY remark content somewhere on the page MUST have that remark content in its notes field.
 - MUST include ALL line items without exception: Adult, Child, Infant, every pax count variation, every category
 - If prices vary by passenger type or group size, each must be a SEPARATE item — with the type/tier appended to product_name
 - If a table header applies to multiple rows below it, repeat the header info in each row's product_name

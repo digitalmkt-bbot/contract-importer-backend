@@ -488,6 +488,7 @@ def import_sheets():
     items = data.get("items", [])
     company = data.get("company_name", "")
     spreadsheet_id = data.get("spreadsheet_id", SPREADSHEET_ID)
+    overwrite = bool(data.get("overwrite", False))  # NEW: if True, overwrite existing rows in place
 
     if not items:
         return jsonify({"error": "ไม่มีข้อมูลที่จะนำเข้า"}), 400
@@ -529,14 +530,15 @@ def import_sheets():
         #       because append_rows() detects the table starting at col E and offsets all data by 4 cols.
 
         # Read all existing data for dedup + finding next empty row
-        existing_keys = set()
+        # Map key -> list of sheet row indices (1-based) so we can overwrite in place
+        existing_keys_rows = {}
         all_values = ws.get_all_values()
-        for row in all_values[4:]:  # skip header rows 1-4
+        for idx, row in enumerate(all_values[4:], start=5):  # sheet row 5 onward
             e = row[4].strip() if len(row) > 4 else ""   # col E = Operator / company
             f = row[5].strip() if len(row) > 5 else ""   # col F = Product Name
             k = (e + "|" + f).lower()
             if k != "|":
-                existing_keys.add(k)
+                existing_keys_rows.setdefault(k, []).append(idx)
 
         # Find the next empty row (scan from bottom, look for last row with E or F data)
         next_row = 5  # default: start at row 5 (after 4 header rows)
@@ -547,46 +549,83 @@ def import_sheets():
                 next_row = i + 2  # i is 0-indexed; +1 for 1-indexed sheet, +1 for next row
                 break
 
-        # Filter: only add items not already in sheet
-        rows = []
-        skipped = []
+        # Classify: new rows vs duplicates
+        new_rows = []           # rows to append at the bottom
+        duplicates = []         # list of {name_full, row_data, existing_rows}
         for item in items:
             name = item.get("product_name", "")
             dt = (item.get("departure_time") or "").strip()
             # Append departure/pickup time to product name so it lives in column F
             name_full = f"{name} | {dt}" if dt and name else (dt or name)
             k = (company.strip() + "|" + name_full.strip()).lower()
-            if k in existing_keys:
-                skipped.append(name_full)
+            row_data = [
+                company,        # col E = Operator name
+                name_full,      # col F = Product / tour name (incl. departure time)
+                item.get("net_rate", item.get("net_price", "")),                                # col G = Net Rate
+                item.get("selling_rate", item.get("public_rate", item.get("cost", ""))),        # col H = Selling Rate
+                "",             # col I = Profit amount (formula)
+                "",             # col J = Profit% (formula)
+                "",             # col K = Margin% (formula)
+                "",             # col L = 10% Commission (formula)
+                "",             # col M (empty)
+                "",             # col N (empty)
+                "",             # col O (empty)
+                "",             # col P (empty)
+                item.get("notes", "")  # col Q = Notes (หมายเหตุ)
+            ]
+            if k in existing_keys_rows:
+                duplicates.append({
+                    "name_full": name_full,
+                    "row_data": row_data,
+                    "existing_rows": existing_keys_rows[k]
+                })
             else:
-                # Write directly to E:Q — NO A-D padding needed when using ws.update()
-                rows.append([
-                    company,        # col E = Operator name
-                    name_full,      # col F = Product / tour name (incl. departure time)
-                    item.get("net_rate", item.get("net_price", "")),                                # col G = Net Rate
-                    item.get("selling_rate", item.get("public_rate", item.get("cost", ""))),        # col H = Selling Rate
-                    "",             # col I = Profit amount (leave blank — formula fills this)
-                    "",             # col J = Profit% (leave blank — formula fills this)
-                    "",             # col K = Margin% (leave blank — formula fills this)
-                    "",             # col L = 10% Commission (leave blank — formula fills this)
-                    "",             # col M (empty)
-                    "",             # col N (empty)
-                    "",             # col O (empty)
-                    "",             # col P (empty)
-                    item.get("notes", "")  # col Q = Notes (หมายเหตุ)
-                ])
-                existing_keys.add(k)
+                new_rows.append(row_data)
 
-        if rows:
-            end_row = next_row + len(rows) - 1
-            ws.update(f"E{next_row}:Q{end_row}", rows, value_input_option="USER_ENTERED")
+        # If duplicates exist and user hasn't confirmed overwrite, return conflict
+        if duplicates and not overwrite:
+            return jsonify({
+                "success": False,
+                "conflict": True,
+                "duplicates": [d["name_full"] for d in duplicates],
+                "new_count": len(new_rows),
+                "message": f"พบรายการซ้ำ {len(duplicates)} รายการ ต้องการลบของเดิมและลงทับไหม?"
+            })
 
-        skip_msg = f" (ข้ามซ้ำ {len(skipped)} รายการ)" if skipped else ""
+        # If overwrite=True, update duplicates in place (keeping their row positions)
+        overwritten = 0
+        if overwrite and duplicates:
+            for dup in duplicates:
+                existing_rows = sorted(dup["existing_rows"])
+                target_row = existing_rows[0]
+                # Update first matching row with new data
+                ws.update(
+                    f"E{target_row}:Q{target_row}",
+                    [dup["row_data"]],
+                    value_input_option="USER_ENTERED"
+                )
+                overwritten += 1
+                # If key matched multiple rows, clear the duplicates beyond the first
+                for extra in existing_rows[1:]:
+                    ws.batch_clear([f"E{extra}:Q{extra}"])
+
+        # Append new (non-duplicate) rows at the bottom
+        if new_rows:
+            end_row = next_row + len(new_rows) - 1
+            ws.update(f"E{next_row}:Q{end_row}", new_rows, value_input_option="USER_ENTERED")
+
+        parts = []
+        if new_rows:
+            parts.append(f"เพิ่ม {len(new_rows)} รายการ")
+        if overwritten:
+            parts.append(f"ลงทับ {overwritten} รายการ")
+        summary = " / ".join(parts) if parts else "ไม่มีข้อมูลใหม่"
+
         return jsonify({
             "success": True,
-            "rows_added": len(rows),
-            "rows_skipped": len(skipped),
-            "message": f"✅ นำเข้าข้อมูลสำเร็จ {len(rows)} รายการ{skip_msg}"
+            "rows_added": len(new_rows),
+            "rows_overwritten": overwritten,
+            "message": f"✅ นำเข้าสำเร็จ: {summary}"
         })
 
     except Exception as e:

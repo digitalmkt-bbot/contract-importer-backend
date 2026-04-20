@@ -385,32 +385,56 @@
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
 
   // --- Import to Sheet ---
+  async function postImport(payload) {
+    const res = await fetch(API + '/api/import-sheets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return res.json();
+  }
+
   document.getElementById('importBtn').addEventListener('click', async () => {
     if (!extractedData) return;
     const btn = document.getElementById('importBtn');
+    const resultEl = document.getElementById('importResult');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> กำลังบันทึก...';
-    document.getElementById('importResult').innerHTML = '';
+    resultEl.innerHTML = '';
 
     try {
-      const res = await fetch(API + '/api/import-sheets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(extractedData)
-      });
-      const data = await res.json();
+      // First attempt: no overwrite — backend returns conflict if duplicates exist
+      let data = await postImport({ ...extractedData, overwrite: false });
+
+      // Conflict: ask user whether to overwrite
+      if (data.conflict && data.duplicates && data.duplicates.length) {
+        const list = data.duplicates.slice(0, 8).map(n => '  • ' + n).join('\n');
+        const more = data.duplicates.length > 8 ? `\n  … และอีก ${data.duplicates.length - 8} รายการ` : '';
+        const msg =
+          `พบรายการซ้ำ ${data.duplicates.length} รายการในชีท:\n\n${list}${more}\n\n` +
+          `ต้องการลบของเดิมและลงทับด้วยข้อมูลใหม่ไหม?\n\n` +
+          `• กด OK = ลงทับ (ลบของเดิมแล้วใส่ข้อมูลใหม่แทน)\n` +
+          `• กด Cancel = ยกเลิก (ไม่บันทึกอะไรเลย)`;
+        const ok = window.confirm(msg);
+        if (!ok) {
+          resultEl.innerHTML =
+            `<div class="status" style="display:block;margin-top:10px;background:#fff4e6;color:#92400e;border:1px solid #f59e0b">⚠️ ยกเลิกการนำเข้า (พบข้อมูลซ้ำ)</div>`;
+          return;
+        }
+        // User confirmed: re-send with overwrite=true
+        btn.innerHTML = '<span class="spinner"></span> กำลังลงทับ...';
+        data = await postImport({ ...extractedData, overwrite: true });
+      }
 
       if (data.success) {
-        let msg = `✅ ${data.message}`;
-        if (data.rows_skipped > 0) msg += ` (ข้ามซ้ำ ${data.rows_skipped} รายการ)`;
-        document.getElementById('importResult').innerHTML =
-          `<div class="status success" style="display:block;margin-top:10px">${msg}</div>`;
+        resultEl.innerHTML =
+          `<div class="status success" style="display:block;margin-top:10px">${data.message}</div>`;
       } else {
-        document.getElementById('importResult').innerHTML =
-          `<div class="status error" style="display:block;margin-top:10px">❌ ${data.error||'เกิดข้อผิดพลาด'}</div>`;
+        resultEl.innerHTML =
+          `<div class="status error" style="display:block;margin-top:10px">❌ ${data.error || data.message || 'เกิดข้อผิดพลาด'}</div>`;
       }
     } catch(e) {
-      document.getElementById('importResult').innerHTML =
+      resultEl.innerHTML =
         `<div class="status error" style="display:block;margin-top:10px">❌ ${e.message}</div>`;
     } finally {
       btn.disabled = false;

@@ -18,7 +18,7 @@ app = Flask(__name__, static_folder="static", static_url_path="")
 # CORS — อนุญาต frontend Vercel เรียก API ได้
 CORS(app, origins="*")
 
-SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1KWqJVYfoaRg3DwslW2zSQmPgScPbE9Z-0v-Ijwtdpms")
+SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1X_gcLo3RROT11Hv9qvhiegoztk9STv4lP2aTq0Ih0Ho")
 SHEET_GID = int(os.environ.get("SHEET_GID", "384942453"))
 
 

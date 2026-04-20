@@ -187,7 +187,8 @@ Return ONLY a JSON object in this exact format (no markdown code blocks, no extr
   "company_name": "name of the tour operator / supplier company",
   "items": [
     {
-      "product_name": "Oneday Tour Type | Program Name | From → To | DEP. Time - ARR. Time | Passenger Type",
+      "product_name": "Oneday Tour Type | Program Name | From → To | Passenger Type",
+      "departure_time": "DEP. 08:00 - ARR. 17:00",
       "net_rate": 1000,
       "selling_rate": 1500,
       "notes": "any other remarks or conditions"
@@ -206,22 +207,28 @@ Rules:
        NEVER drop or omit the section/boat type header — it is what distinguishes one group of products from another.
     2. Program name (e.g. "Phi Phi Island Tour", "Similan Diving Day Trip", "ATV Adventure") — always include
     3. Route: departure point → destination (e.g. "Phuket → Phi Phi", "Khao Lak → Similan", "Krabi → Railay") — look for columns: From/To, From, Route, Departure Point, Origin/Destination — include if found
-    4. Departure & arrival time (e.g. "DEP. 07:30 - ARR. 17:00", "08:00-17:00", "Full Day", "Half Day AM") — look for columns: Time DEP.-ARR., Time, Schedule, Departure Time — include if found
-    5. PASSENGER TYPE / AGE RANGE — ALWAYS append as the LAST segment of product_name whenever the row has a specific passenger type or age category:
+    4. PASSENGER TYPE / AGE RANGE — ALWAYS append as the LAST segment of product_name whenever the row has a specific passenger type or age category:
        - Use the exact label from the document: "Adult", "Child", "Infant", "CHD", "INF", "Pax 1-4", "Min 15 Pax", "Per Person", etc.
        - This is MANDATORY: every row that corresponds to a specific age group or pax tier MUST have that label at the end of product_name.
        - Do NOT put passenger type / age category in the notes field.
     Build product_name by joining only the fields that are actually present in the document.
     Examples (showing multi-section contract with Big Boat and Speed Boat sections):
-      "Big Boat | Phi Phi Island Tour | Phuket → Phi Phi | DEP. 08:00 - ARR. 17:00 | Adult"
-      "Big Boat | Phi Phi Island Tour | Phuket → Phi Phi | DEP. 08:00 - ARR. 17:00 | Child"
-      "Big Boat | Phi Phi Island Tour | Phuket → Phi Phi | DEP. 08:00 - ARR. 17:00 | Infant"
-      "Speed Boat | Phi Phi Island Tour | Phuket → Phi Phi | DEP. 07:30 - ARR. 17:30 | Adult"
-      "Speed Boat | Phi Phi Island Tour | Phuket → Phi Phi | DEP. 07:30 - ARR. 17:30 | Child"
-      "Speed Boat | Similan Day Trip | Khao Lak → Similan | DEP. 06:00 - ARR. 18:00 | Adult"
-      "Liveaboard | Similan Islands | Khao Lak → Similan | 2D1N | Adult"
+      "Big Boat | Phi Phi Island Tour | Phuket → Phi Phi | Adult"
+      "Big Boat | Phi Phi Island Tour | Phuket → Phi Phi | Child"
+      "Big Boat | Phi Phi Island Tour | Phuket → Phi Phi | Infant"
+      "Speed Boat | Phi Phi Island Tour | Phuket → Phi Phi | Adult"
+      "Speed Boat | Phi Phi Island Tour | Phuket → Phi Phi | Child"
+      "Speed Boat | Similan Day Trip | Khao Lak → Similan | Adult"
+      "Liveaboard | Similan Islands | Khao Lak → Similan | Adult"
       "Transfer | Phuket Airport → Patong Hotel | 1-4 Pax"
-    Include as much detail as possible — do NOT omit section header, route, time, or passenger type if they appear anywhere in the row or surrounding headers.
+    Include as much detail as possible — do NOT omit section header, route, or passenger type if they appear anywhere in the row or surrounding headers.
+- departure_time: extract the departure/arrival time as a SEPARATE field — do NOT embed it in product_name.
+    Look for columns: Time DEP.-ARR., Time, Schedule, Departure Time, เวลา, ออกเดินทาง
+    Format: "DEP. HH:MM - ARR. HH:MM" — use the exact values from the document.
+    If only departure time is shown (no arrival), use: "DEP. HH:MM"
+    If the row says Full Day / Half Day / duration only (e.g. "Full Day", "Half Day AM", "2D1N"), put that in departure_time.
+    CRITICAL: If the same tour/program has MULTIPLE departure times with DIFFERENT prices, each time MUST be a SEPARATE item with its own departure_time value.
+    If no time is found for a row, use "" (empty string).
 - net_rate: agent/net cost price in THB (number only). Look for: Net Rate, Net Price, Agent Rate, Net, Cost
 - selling_rate: retail/public price in THB. Look for: Selling Rate, Public Rate, Rack Rate, Adult Rate, Full Price. Use 0 if not found.
 - notes: CRITICAL — copy the COMPLETE, FULL, VERBATIM text from all remark/note/condition fields. Do NOT summarize, shorten, or omit any part. Extract and combine ALL of the following:
@@ -492,7 +499,7 @@ def import_sheets():
         if ws is None:
             ws = sh.sheet1
 
-        # Sheet column layout: E=Operator, F=List/Tour name, G=empty, H=Net Rate, I=Selling Rate, J=Profit(formula),
+        # Sheet column layout: E=Operator, F=List/Tour name, G=Departure/Arrival Time, H=Net Rate, I=Selling Rate, J=Profit(formula),
         # K=Profit(%), L=Margin%, M=10%Commission, N-P=other cols, Q=Notes (หมายเหตุ)
         # NOTE: use ws.update() with explicit range E:Q — NOT append_rows()
         #       because append_rows() detects the table starting at col E and offsets all data by 4 cols.
@@ -529,7 +536,7 @@ def import_sheets():
                 rows.append([
                     company,   # col E = Operator name
                     name,      # col F = Product / tour name
-                    "",        # col G (empty)
+                    item.get("departure_time", ""),  # col G = Departure/Arrival Time
                     item.get("net_rate", item.get("net_price", "")),  # col H = Net Rate
                     item.get("selling_rate", item.get("public_rate", item.get("cost", ""))),  # col I = Selling Rate
                     "",        # col J = Profit amount (leave blank — formula fills this)
@@ -544,7 +551,7 @@ def import_sheets():
                 existing_keys.add(k)
 
         if rows:
-             end_row = next_row + len(rows) - 1
+            end_row = next_row + len(rows) - 1
             ws.update(f"E{next_row}:Q{end_row}", rows, value_input_option="USER_ENTERED")
 
         skip_msg = f" (ข้ามซ้ำ {len(skipped)} รายการ)" if skipped else ""

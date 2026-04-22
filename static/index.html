@@ -5,442 +5,720 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Contract Importer — Love Andaman</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; color: #1a202c; min-height: 100vh; }
+:root {
+  --ocean: #0891b2;
+  --ocean-dark: #0e7490;
+  --ocean-light: #e0f2fe;
+  --teal: #0d9488;
+  --coral: #f97316;
+  --white: #ffffff;
+  --gray-50: #f8fafc;
+  --gray-100: #f1f5f9;
+  --gray-200: #e2e8f0;
+  --gray-400: #94a3b8;
+  --gray-600: #475569;
+  --gray-800: #1e293b;
+  --success: #059669;
+  --error: #dc2626;
+  --radius: 12px;
+  --shadow: 0 4px 24px rgba(8,145,178,0.12);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: linear-gradient(135deg, #e0f2fe 0%, #f0fdfa 50%, #fef3c7 100%);
+  min-height: 100vh;
+  color: var(--gray-800);
+}
+.header {
+  background: linear-gradient(135deg, var(--ocean-dark) 0%, var(--teal) 100%);
+  padding: 20px 32px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.2);
+}
+.header-logo { font-size: 32px; }
+.header-text h1 { color: white; font-size: 20px; font-weight: 700; }
+.header-text p { color: rgba(255,255,255,0.75); font-size: 13px; margin-top: 2px; }
+.header-badge {
+  margin-left: auto;
+  background: rgba(255,255,255,0.15);
+  color: white;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.1);
+  color: white;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: #6ee7b7; }
+.status-dot.offline { background: #fca5a5; }
 
-  header {
-    background: linear-gradient(135deg, #1a365d 0%, #2b6cb0 100%);
-    color: white; padding: 20px 32px;
-    display: flex; align-items: center; gap: 12px;
-  }
-  header h1 { font-size: 20px; font-weight: 700; }
-  header span { font-size: 13px; opacity: 0.8; }
+.main { max-width: 1100px; margin: 32px auto; padding: 0 24px 80px; }
 
-  .container { max-width: 900px; margin: 32px auto; padding: 0 16px; }
+/* API URL Banner */
+.api-banner {
+  background: white;
+  border: 2px solid var(--ocean);
+  border-radius: var(--radius);
+  padding: 14px 20px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.api-banner label { font-size: 13px; font-weight: 700; color: var(--ocean-dark); white-space: nowrap; }
+.api-banner input {
+  flex: 1;
+  min-width: 200px;
+  padding: 8px 12px;
+  border: 2px solid var(--gray-200);
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: monospace;
+  outline: none;
+}
+.api-banner input:focus { border-color: var(--ocean); }
 
-  .card {
-    background: white; border-radius: 12px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    padding: 28px; margin-bottom: 20px;
-  }
-  .card h2 { font-size: 16px; font-weight: 600; color: #2d3748; margin-bottom: 16px; }
+/* Steps */
+.steps {
+  display: flex;
+  background: white;
+  border-radius: var(--radius);
+  margin-bottom: 24px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.step {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  cursor: pointer;
+  border-right: 1px solid var(--gray-200);
+  transition: background 0.15s;
+}
+.step:last-child { border-right: none; }
+.step-num {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--gray-200);
+  color: var(--gray-600);
+  font-size: 13px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.step.active .step-num { background: var(--ocean); color: white; }
+.step.done .step-num { background: var(--success); color: white; }
+.step-label { font-size: 13px; font-weight: 600; color: var(--gray-600); }
+.step.active .step-label { color: var(--ocean-dark); }
+.step.done .step-label { color: var(--success); }
 
-  /* Drop zone */
-  .drop-zone {
-    border: 2px dashed #90cdf4; border-radius: 10px;
-    padding: 40px 24px; text-align: center; cursor: pointer;
-    transition: all 0.2s; background: #ebf8ff;
-  }
-  .drop-zone:hover, .drop-zone.dragover {
-    border-color: #3182ce; background: #bee3f8;
-  }
-  .drop-zone .icon { font-size: 40px; margin-bottom: 10px; }
-  .drop-zone p { color: #4a5568; font-size: 14px; }
-  .drop-zone p strong { color: #2b6cb0; }
-  .drop-zone small { color: #718096; font-size: 12px; margin-top: 6px; display: block; }
-  #fileInput { display: none; }
+/* Cards */
+.card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 28px; margin-bottom: 20px; }
+.card-title { font-size: 16px; font-weight: 700; color: var(--gray-800); margin-bottom: 18px; display: flex; align-items: center; gap: 8px; }
 
-  /* File list */
-  #fileList { display: none; margin-top: 16px; }
-  .file-item {
-    display: flex; align-items: center; gap: 10px; padding: 8px 14px;
-    background: #f7fafc; border-radius: 8px; border: 1px solid #e2e8f0;
-    margin-bottom: 6px;
-  }
-  .file-item .file-icon { font-size: 20px; flex-shrink: 0; }
-  .file-item .file-name { font-size: 14px; font-weight: 500; color: #2d3748; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .file-item .file-size { font-size: 12px; color: #718096; flex-shrink: 0; }
-  .file-item .file-status { font-size: 12px; flex-shrink: 0; min-width: 80px; text-align: right; }
+/* Dropzone */
+.dropzone {
+  border: 3px dashed var(--gray-200);
+  border-radius: var(--radius);
+  padding: 52px 32px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: var(--gray-50);
+}
+.dropzone:hover, .dropzone.drag-over { border-color: var(--ocean); background: var(--ocean-light); }
+.dropzone input { display: none; }
+.dropzone-icon { font-size: 52px; margin-bottom: 14px; }
+.dropzone-text { font-size: 16px; font-weight: 600; color: var(--gray-800); margin-bottom: 6px; }
+.dropzone-sub { font-size: 13px; color: var(--gray-400); }
 
-  /* Buttons */
-  .btn {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 10px 20px; border-radius: 8px; border: none;
-    font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s;
-  }
-  .btn-primary { background: #3182ce; color: white; }
-  .btn-primary:hover:not(:disabled) { background: #2b6cb0; }
-  .btn-success { background: #38a169; color: white; }
-  .btn-success:hover:not(:disabled) { background: #2f855a; }
-  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+.file-badge {
+  display: inline-flex; align-items: center; gap: 10px;
+  background: var(--ocean-light); border: 2px solid var(--ocean);
+  border-radius: 8px; padding: 10px 16px; margin-top: 12px;
+  font-size: 14px; font-weight: 600; color: var(--ocean-dark);
+}
 
-  /* Status */
-  .status { padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-top: 12px; display: none; }
-  .status.info { background: #ebf8ff; color: #2b6cb0; border: 1px solid #90cdf4; }
-  .status.success { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
-  .status.error { background: #fff5f5; color: #c53030; border: 1px solid #fc8181; }
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 20px; border-radius: 8px;
+  font-size: 14px; font-weight: 600; border: none;
+  cursor: pointer; transition: all 0.2s; text-decoration: none;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--ocean); color: white; }
+.btn-primary:hover:not(:disabled) { background: var(--ocean-dark); transform: translateY(-1px); }
+.btn-success { background: var(--success); color: white; }
+.btn-success:hover:not(:disabled) { background: #047857; transform: translateY(-1px); }
+.btn-outline { background: transparent; color: var(--ocean); border: 2px solid var(--ocean); }
+.btn-outline:hover { background: var(--ocean-light); }
+.btn-sm { padding: 6px 12px; font-size: 12px; }
 
-  /* Spinner */
-  .spinner {
-    display: inline-block; width: 14px; height: 14px;
-    border: 2px solid rgba(255,255,255,0.4);
-    border-top-color: white; border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
-  .spinner-dark {
-    display: inline-block; width: 12px; height: 12px;
-    border: 2px solid rgba(0,0,0,0.15);
-    border-top-color: #2b6cb0; border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
+/* Loading */
+.loading-bar { width: 100%; height: 4px; background: var(--gray-200); border-radius: 2px; overflow: hidden; margin-top: 16px; }
+.loading-bar-inner {
+  height: 100%;
+  background: linear-gradient(90deg, var(--ocean), var(--teal), var(--ocean));
+  background-size: 200%;
+  animation: loading 1.5s linear infinite;
+  border-radius: 2px;
+}
+@keyframes loading { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
 
-  /* Progress bar */
-  .progress-wrap { margin-top: 10px; display: none; }
-  .progress-bar-bg { background: #e2e8f0; border-radius: 6px; height: 8px; overflow: hidden; }
-  .progress-bar-fill { background: #3182ce; height: 8px; border-radius: 6px; transition: width 0.3s; }
-  .progress-text { font-size: 12px; color: #718096; margin-top: 4px; text-align: center; }
+/* Table */
+.preview-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
+.preview-company { display: flex; align-items: center; gap: 10px; flex: 1; }
+.preview-company input { font-size: 15px; font-weight: 600; border: 2px solid var(--gray-200); border-radius: 8px; padding: 8px 12px; color: var(--ocean-dark); flex: 1; outline: none; }
+.preview-company input:focus { border-color: var(--ocean); }
+.count-badge { background: var(--ocean); color: white; border-radius: 20px; padding: 4px 10px; font-size: 12px; font-weight: 700; }
+.table-wrapper { overflow-x: auto; border-radius: 8px; border: 1px solid var(--gray-200); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+thead tr { background: linear-gradient(135deg, var(--ocean-dark), var(--teal)); }
+thead th { padding: 12px 14px; text-align: left; font-size: 12px; font-weight: 700; color: white; letter-spacing: 0.5px; white-space: nowrap; }
+tbody tr { border-bottom: 1px solid var(--gray-100); }
+tbody tr:hover { background: var(--ocean-light); }
+tbody td { padding: 10px 14px; }
+.editable { background: transparent; border: none; outline: none; width: 100%; font-size: 14px; color: var(--gray-800); padding: 2px 4px; border-radius: 4px; }
+.editable:focus { background: white; box-shadow: 0 0 0 2px var(--ocean); }
+.editable.price { text-align: right; font-weight: 600; color: var(--teal); }
+.delete-row { background: none; border: none; color: var(--gray-400); cursor: pointer; font-size: 16px; padding: 4px 8px; border-radius: 4px; }
+.delete-row:hover { color: var(--error); background: #fee2e2; }
 
-  /* Results table */
-  .results-header {
-    display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 14px; flex-wrap: wrap; gap: 8px;
-  }
-  .company-badge {
-    background: #ebf8ff; color: #2b6cb0; border: 1px solid #90cdf4;
-    padding: 4px 10px; border-radius: 20px; font-size: 13px; font-weight: 600;
-  }
-  .count-badge {
-    background: #f0fff4; color: #276749; border: 1px solid #9ae6b4;
-    padding: 4px 10px; border-radius: 20px; font-size: 12px;
-  }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { background: #2b6cb0; color: white; padding: 10px 12px; text-align: left; }
-  td { padding: 9px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
-  tr:nth-child(even) td { background: #f7fafc; }
-  tr:hover td { background: #ebf8ff; }
-  td input {
-    width: 100%; border: 1px solid #e2e8f0; border-radius: 5px;
-    padding: 4px 8px; font-size: 13px; background: white;
-  }
-  td input:focus { outline: none; border-color: #3182ce; box-shadow: 0 0 0 2px rgba(49,130,206,0.2); }
-  .del-btn {
-    background: none; border: none; color: #fc8181; cursor: pointer;
-    font-size: 16px; padding: 2px 6px; border-radius: 4px;
-  }
-  .del-btn:hover { background: #fff5f5; }
+/* Alerts */
+.alert { border-radius: 8px; padding: 12px 16px; font-size: 13px; font-weight: 500; margin-top: 16px; display: flex; align-items: flex-start; gap: 10px; line-height: 1.5; }
+.alert-warning { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+.alert-error { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+.alert-success { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+.alert-info { background: var(--ocean-light); color: var(--ocean-dark); border: 1px solid #bae6fd; }
 
-  /* Import result */
-  #importResult { margin-top: 12px; }
+.import-result { text-align: center; padding: 24px; }
+.import-result .big-icon { font-size: 64px; margin-bottom: 12px; }
+.import-result h3 { font-size: 20px; font-weight: 700; color: var(--success); margin-bottom: 8px; }
+.import-result p { color: var(--gray-600); font-size: 14px; }
+
+#toast { position: fixed; bottom: 32px; right: 32px; padding: 14px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; color: white; box-shadow: 0 8px 32px rgba(0,0,0,0.2); transform: translateY(100px); opacity: 0; transition: all 0.3s; z-index: 1000; max-width: 360px; }
+#toast.show { transform: translateY(0); opacity: 1; }
+#toast.toast-success { background: var(--success); }
+#toast.toast-error { background: var(--error); }
+
+.section { display: none; }
+.section.visible { display: block; }
+
+@media (max-width: 640px) {
+  .steps { overflow-x: auto; }
+  .step-label { display: none; }
+  .header-badge { display: none; }
+}
 </style>
 </head>
 <body>
 
-<header>
-  <div>🏝️</div>
-  <div>
-    <h1>Contract Importer</h1>
-    <span>Love Andaman — อัปโหลด Contract → ดึงราคา → บันทึกใน Sheet</span>
+<!-- HEADER -->
+<div class="header">
+  <div class="header-logo">🌊</div>
+  <div class="header-text">
+    <h1>Contract Data Importer</h1>
+    <p>ดึงข้อมูล Contract จาก PDF → Google Sheets อัตโนมัติ</p>
   </div>
-</header>
+  <div class="header-status" onclick="checkStatus()" title="คลิกเพื่อตรวจสอบการเชื่อมต่อ">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">ตรวจสอบ...</span>
+  </div>
+  <div class="header-badge">Love Andaman</div>
+</div>
 
-<div class="container">
+<div class="main">
 
-  <!-- Upload -->
-  <div class="card">
-    <h2>📁 อัปโหลดไฟล์ Contract</h2>
-    <div class="drop-zone" id="dropZone">
-      <div class="icon">📄</div>
-      <p>ลากไฟล์มาวางที่นี่ หรือ <strong>คลิกเพื่อเลือกไฟล์</strong></p>
-      <small>รองรับ: PDF, PNG, JPG, JPEG, WEBP (สูงสุด 20 MB / ไฟล์) • เลือกได้หลายไฟล์พร้อมกัน</small>
+  <!-- API URL Config -->
+  <div class="api-banner">
+    <label>🔗 Backend URL (Railway):</label>
+    <input type="text" id="api-url" placeholder="https://your-app.railway.app"
+           oninput="saveApiUrl()" onblur="checkStatus()">
+    <button class="btn btn-primary btn-sm" onclick="checkStatus()">🔄 ตรวจสอบ</button>
+  </div>
+
+  <div id="status-alert"></div>
+
+  <!-- STEPS -->
+  <div class="steps">
+    <div class="step active" id="step1-ind" onclick="goToStep(1)">
+      <div class="step-num">1</div>
+      <div class="step-label">อัปโหลด PDF</div>
     </div>
-    <input type="file" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,.webp,image/*,application/pdf" multiple>
+    <div class="step" id="step2-ind" onclick="goToStep(2)">
+      <div class="step-num">2</div>
+      <div class="step-label">ตรวจสอบข้อมูล</div>
+    </div>
+    <div class="step" id="step3-ind" onclick="goToStep(3)">
+      <div class="step-num">3</div>
+      <div class="step-label">นำเข้า Google Sheets</div>
+    </div>
+  </div>
 
-    <!-- File list -->
-    <div id="fileList"></div>
+  <!-- STEP 1: UPLOAD -->
+  <div id="step1" class="section visible">
+    <div class="card">
+      <div class="card-title">📄 อัปโหลดไฟล์ Contract PDF</div>
 
-    <div class="btn-row">
-      <button class="btn btn-primary" id="extractBtn" disabled>
-        🔍 ดึงข้อมูลราคา
+      <div class="dropzone" id="dropzone"
+           ondrop="handleDrop(event)" ondragover="handleDragOver(event)"
+           ondragleave="handleDragLeave()" onclick="document.getElementById('pdf-input').click()">
+        <input type="file" id="pdf-input" accept=".pdf,.png,.jpg,.jpeg,.webp,image/*" onchange="handleFileSelect(event)">
+        <div class="dropzone-icon">📋</div>
+        <div class="dropzone-text">คลิกหรือลากไฟล์ PDF มาวางที่นี่</div>
+        <div class="dropzone-sub">รองรับ PDF / PNG / JPG / WEBP — NOAH · Charter Marine · และอื่นๆ</div>
+      </div>
+
+      <div id="file-badge" style="display:none">
+        <div class="file-badge">
+          <span>📋</span>
+          <span id="file-name"></span>
+          <button class="btn btn-sm btn-outline" onclick="clearFile()" style="padding:2px 10px">✕</button>
+        </div>
+      </div>
+
+      <div id="extract-loading" style="display:none">
+        <div class="loading-bar"><div class="loading-bar-inner"></div></div>
+        <p style="text-align:center;margin-top:10px;font-size:13px;color:var(--gray-600)">
+          🤖 AI กำลังวิเคราะห์และดึงข้อมูลจาก PDF...
+        </p>
+      </div>
+      <div id="extract-error"></div>
+    </div>
+
+    <div style="text-align:right">
+      <button class="btn btn-primary" id="extract-btn" onclick="extractData()" disabled>
+        🔍 ดึงข้อมูลจาก PDF →
       </button>
     </div>
-
-    <!-- Progress -->
-    <div class="progress-wrap" id="progressWrap">
-      <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill" style="width:0%"></div></div>
-      <div class="progress-text" id="progressText"></div>
-    </div>
-
-    <div class="status" id="extractStatus"></div>
   </div>
 
-  <!-- Results -->
-  <div class="card" id="resultsCard" style="display:none">
-    <div class="results-header">
-      <h2>📋 ข้อมูลที่ดึงได้</h2>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <span class="company-badge" id="companyBadge"></span>
-        <span class="count-badge" id="countBadge"></span>
+  <!-- STEP 2: PREVIEW -->
+  <div id="step2" class="section">
+    <div class="card">
+      <div class="preview-header">
+        <div class="preview-company">
+          <span style="font-size:13px;font-weight:600;color:var(--gray-600);white-space:nowrap">🏢 บริษัท:</span>
+          <input type="text" id="company-name" placeholder="ชื่อบริษัทผู้ให้บริการทัวร์">
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span class="count-badge" id="row-count">0 รายการ</span>
+          <button class="btn btn-outline btn-sm" onclick="addRow()">+ เพิ่มรายการ</button>
+          <button class="btn btn-outline btn-sm" onclick="goToStep(1)">← อัปโหลดใหม่</button>
+        </div>
+      </div>
+      <div id="extract-warning"></div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:36px">#</th>
+              <th>ชื่อโปรแกรม / สินค้า</th>
+              <th style="width:150px">เวลา (DEP / PICKUP)</th>
+              <th style="width:130px;text-align:right">Net Rate (THB)</th>
+              <th style="width:130px;text-align:right">Selling Rate (THB)</th>
+              <th style="width:220px">หมายเหตุ</th>
+              <th style="width:40px"></th>
+            </tr>
+          </thead>
+          <tbody id="preview-tbody"></tbody>
+        </table>
+      </div>
+      <div style="margin-top:12px;font-size:12px;color:var(--gray-400)">
+        💡 คลิกที่ข้อมูลเพื่อแก้ไข — ตรวจสอบให้ครบก่อนนำเข้า
       </div>
     </div>
-    <div style="overflow-x:auto">
-      <table id="resultsTable">
-        <thead>
-          <tr>
-            <th style="width:40%">ชื่อโปรแกรม / สินค้า</th>
-            <th style="width:15%">Net Rate (฿)</th>
-            <th style="width:15%">Selling Rate (฿)</th>
-            <th style="width:22%">หมายเหตุ</th>
-            <th style="width:8%">ลบ</th>
-          </tr>
-        </thead>
-        <tbody id="resultsBody"></tbody>
-      </table>
+    <div style="display:flex;justify-content:space-between">
+      <button class="btn btn-outline" onclick="goToStep(1)">← อัปโหลดใหม่</button>
+      <button class="btn btn-success" onclick="goToStep(3)">✅ ยืนยัน → นำเข้า Sheets</button>
     </div>
-    <div class="btn-row">
-      <button class="btn btn-success" id="importBtn">
-        📊 บันทึกเข้า Google Sheet
-      </button>
+  </div>
+
+  <!-- STEP 3: IMPORT -->
+  <div id="step3" class="section">
+    <div class="card">
+      <div class="card-title">📊 นำเข้าข้อมูลสู่ Google Sheets</div>
+
+      <div class="alert alert-info" style="margin-bottom:20px">
+        <span style="font-size:20px">📋</span>
+        <div>
+          บริษัท: <strong id="summary-company"></strong><br>
+          จำนวนสินค้า: <strong id="summary-count"></strong> รายการ
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom:16px">
+        <label style="display:block;font-size:13px;font-weight:600;color:var(--gray-600);margin-bottom:6px">
+          Spreadsheet ID
+        </label>
+        <input type="text" id="spreadsheet-id"
+               value="1X_gcLo3RROT11Hv9qvhiegoztk9STv4lP2aTq0Ih0Ho"
+               style="width:100%;padding:10px 14px;border:2px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:monospace;outline:none">
+      </div>
+
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <button class="btn btn-success" id="import-btn" onclick="importToSheets()">
+          🚀 นำเข้า Google Sheets
+        </button>
+        <a id="open-sheet-link" href="#" target="_blank" class="btn btn-outline">
+          🔗 เปิด Google Sheet
+        </a>
+      </div>
+
+      <div id="import-loading" style="display:none">
+        <div class="loading-bar"><div class="loading-bar-inner"></div></div>
+        <p style="text-align:center;margin-top:10px;font-size:13px;color:var(--gray-600)">กำลังนำเข้าข้อมูล...</p>
+      </div>
+
+      <div id="import-result" style="display:none" class="import-result">
+        <div class="big-icon">🎉</div>
+        <h3>นำเข้าสำเร็จ!</h3>
+        <p id="import-success-msg"></p>
+        <div style="margin-top:20px;display:flex;gap:12px;justify-content:center">
+          <a id="open-sheet-final" href="#" target="_blank" class="btn btn-success">📊 เปิด Google Sheet</a>
+          <button class="btn btn-outline" onclick="startOver()">📄 อัปโหลด PDF ใหม่</button>
+        </div>
+      </div>
+
+      <div id="import-error"></div>
     </div>
-    <div id="importResult"></div>
+    <div>
+      <button class="btn btn-outline" onclick="goToStep(2)">← แก้ไขข้อมูล</button>
+    </div>
   </div>
 
 </div>
 
+<div id="toast"></div>
+
 <script>
-  const API = '';  // same origin
-  let currentFiles = [];        // Array of File objects
-  let extractedData = null;     // { company_name, items[] }
+// ─── Config ───────────────────────────────────────────────────────────────────
+const LS_KEY = 'contract_importer_api_url';
 
-  // --- Drop zone ---
-  const dropZone = document.getElementById('dropZone');
-  const fileInput = document.getElementById('fileInput');
+function getApiUrl() {
+  return (document.getElementById('api-url').value || '').replace(/\/$/, '');
+}
 
-  dropZone.addEventListener('click', () => fileInput.click());
-  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-  dropZone.addEventListener('drop', e => {
-    e.preventDefault();
-    dropZone.classList.remove('dragover');
-    if (e.dataTransfer.files.length) setFiles(Array.from(e.dataTransfer.files));
-  });
-  fileInput.addEventListener('change', () => {
-    if (fileInput.files.length) setFiles(Array.from(fileInput.files));
-  });
+function saveApiUrl() {
+  localStorage.setItem(LS_KEY, getApiUrl());
+  updateSheetLink();
+}
 
-  function formatSize(bytes) {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
-    return (bytes/1024/1024).toFixed(1) + ' MB';
+// ─── Init ─────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  const saved = localStorage.getItem(LS_KEY) || '';
+  document.getElementById('api-url').value = saved;
+  if (saved) checkStatus();
+  updateSheetLink();
+});
+
+// ─── Status Check ─────────────────────────────────────────────────────────────
+async function checkStatus() {
+  const url = getApiUrl();
+  const dot = document.getElementById('status-dot');
+  const txt = document.getElementById('status-text');
+  const alertEl = document.getElementById('status-alert');
+
+  if (!url) {
+    dot.className = 'status-dot offline';
+    txt.textContent = 'ยังไม่ได้ตั้งค่า URL';
+    alertEl.innerHTML = `<div class="alert alert-warning"><span>⚠️</span>
+      <span>กรุณาใส่ URL ของ Railway backend ด้านบนก่อน เช่น <code>https://your-app.railway.app</code></span></div>`;
+    return;
   }
 
-  function fileIcon(file) {
-    if (file.type === 'application/pdf') return '📄';
-    if (file.type.startsWith('image/')) return '🖼️';
-    return '📎';
-  }
+  txt.textContent = 'กำลังตรวจสอบ...';
+  alertEl.innerHTML = '';
 
-  function setFiles(files) {
-    currentFiles = files;
-    renderFileList(files);
-    document.getElementById('extractBtn').disabled = false;
-    document.getElementById('resultsCard').style.display = 'none';
-    showStatus('extractStatus', '', '');
-    document.getElementById('importResult').innerHTML = '';
-    setProgress(0, '');
-  }
+  try {
+    const r = await fetch(`${url}/api/status`, { signal: AbortSignal.timeout(8000) });
+    const d = await r.json();
 
-  function renderFileList(files) {
-    const container = document.getElementById('fileList');
-    container.style.display = 'block';
-    container.innerHTML = '';
-    files.forEach((f, i) => {
-      const div = document.createElement('div');
-      div.className = 'file-item';
-      div.id = 'file-item-' + i;
-      div.innerHTML = `
-        <span class="file-icon">${fileIcon(f)}</span>
-        <span class="file-name">${esc(f.name)}</span>
-        <span class="file-size">${formatSize(f.size)}</span>
-        <span class="file-status" id="file-status-${i}"></span>`;
-      container.appendChild(div);
-    });
-  }
+    dot.className = 'status-dot';
+    txt.textContent = 'เชื่อมต่อสำเร็จ';
 
-  function setFileStatus(i, html) {
-    const el = document.getElementById('file-status-' + i);
-    if (el) el.innerHTML = html;
-  }
+    const warnings = [];
+    if (!d.has_api_key) warnings.push('❌ OPENAI_API_KEY — ยังไม่ได้ตั้งค่าบน Railway');
+    if (!d.has_credentials) warnings.push('❌ GOOGLE_CREDENTIALS_JSON — ยังไม่ได้ตั้งค่าบน Railway');
 
-  function setProgress(pct, text) {
-    const wrap = document.getElementById('progressWrap');
-    const fill = document.getElementById('progressFill');
-    const label = document.getElementById('progressText');
-    if (text) {
-      wrap.style.display = 'block';
-      fill.style.width = pct + '%';
-      label.textContent = text;
+    if (warnings.length > 0) {
+      alertEl.innerHTML = `<div class="alert alert-warning"><span>⚙️</span>
+        <div><strong>Backend เชื่อมต่อแล้ว แต่ยังขาด Environment Variables:</strong><br>
+        ${warnings.join('<br>')}
+        <br><small>ไปที่ Railway → Project → Variables เพื่อตั้งค่า</small></div></div>`;
     } else {
-      wrap.style.display = 'none';
-      fill.style.width = '0%';
-      label.textContent = '';
+      alertEl.innerHTML = `<div class="alert alert-success"><span>✅</span>
+        <span>Backend พร้อมใช้งาน — API Key และ Credentials ครบ</span></div>`;
     }
-  }
 
-  function showStatus(id, type, msg) {
+  } catch(e) {
+    dot.className = 'status-dot offline';
+    txt.textContent = 'เชื่อมต่อไม่ได้';
+    alertEl.innerHTML = `<div class="alert alert-error"><span>❌</span>
+      <span>ไม่สามารถเชื่อมต่อ backend: <code>${url}</code><br>
+      ตรวจสอบว่า Railway deploy สำเร็จแล้ว และ URL ถูกต้อง</span></div>`;
+  }
+}
+
+// ─── Step Navigation ──────────────────────────────────────────────────────────
+let extractedData = { company_name: '', items: [] };
+
+function goToStep(n) {
+  for (let i = 1; i <= 3; i++) {
+    document.getElementById(`step${i}`).classList.remove('visible');
+    const ind = document.getElementById(`step${i}-ind`);
+    ind.classList.remove('active', 'done');
+    if (i < n) ind.classList.add('done');
+    else if (i === n) ind.classList.add('active');
+  }
+  document.getElementById(`step${n}`).classList.add('visible');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  if (n === 3) {
+    document.getElementById('summary-company').textContent = document.getElementById('company-name').value;
+    document.getElementById('summary-count').textContent = extractedData.items.length;
+    updateSheetLink();
+  }
+}
+
+function updateSheetLink() {
+  const sid = document.getElementById('spreadsheet-id')?.value || '1X_gcLo3RROT11Hv9qvhiegoztk9STv4lP2aTq0Ih0Ho';
+  const url = `https://docs.google.com/spreadsheets/d/${sid}/edit`;
+  ['open-sheet-link','open-sheet-final'].forEach(id => {
     const el = document.getElementById(id);
-    el.className = 'status ' + type;
-    el.style.display = msg ? 'block' : 'none';
-    el.textContent = msg;
+    if (el) el.href = url;
+  });
+}
+
+// ─── File Handling ────────────────────────────────────────────────────────────
+let selectedFile = null;
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropzone').classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (!f) return;
+  if (isAcceptedFile(f)) setFile(f);
+  else showToast('กรุณาเลือกไฟล์ PDF หรือรูปภาพ (PNG/JPG/WEBP)', 'error');
+}
+
+function isAcceptedFile(f) {
+  if (!f) return false;
+  if (f.type === 'application/pdf') return true;
+  if (f.type && f.type.startsWith('image/')) return true;
+  const name = (f.name || '').toLowerCase();
+  return /\.(pdf|png|jpe?g|webp)$/.test(name);
+}
+function handleDragOver(e) { e.preventDefault(); document.getElementById('dropzone').classList.add('drag-over'); }
+function handleDragLeave() { document.getElementById('dropzone').classList.remove('drag-over'); }
+function handleFileSelect(e) { if (e.target.files[0]) setFile(e.target.files[0]); }
+
+function setFile(file) {
+  selectedFile = file;
+  document.getElementById('file-name').textContent = file.name;
+  document.getElementById('file-badge').style.display = 'block';
+  document.getElementById('extract-btn').disabled = false;
+  document.getElementById('extract-error').innerHTML = '';
+}
+
+function clearFile() {
+  selectedFile = null;
+  document.getElementById('file-badge').style.display = 'none';
+  document.getElementById('pdf-input').value = '';
+  document.getElementById('extract-btn').disabled = true;
+}
+
+// ─── Extract ──────────────────────────────────────────────────────────────────
+async function extractData() {
+  const apiUrl = getApiUrl();
+  if (!apiUrl) { showToast('กรุณาใส่ URL ของ Railway ก่อน', 'error'); return; }
+  if (!selectedFile) return;
+
+  document.getElementById('extract-loading').style.display = 'block';
+  document.getElementById('extract-btn').disabled = true;
+  document.getElementById('extract-error').innerHTML = '';
+
+  const fd = new FormData();
+  fd.append('file', selectedFile);
+
+  try {
+    const r = await fetch(`${apiUrl}/api/extract`, { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.error) { showAlert('extract-error', d.error, 'error'); return; }
+    extractedData = d;
+    populatePreview(d);
+    goToStep(2);
+  } catch(e) {
+    showAlert('extract-error', 'เชื่อมต่อ backend ไม่ได้: ' + e.message, 'error');
+  } finally {
+    document.getElementById('extract-loading').style.display = 'none';
+    document.getElementById('extract-btn').disabled = false;
   }
+}
 
-  // --- Extract ---
-  document.getElementById('extractBtn').addEventListener('click', async () => {
-    if (!currentFiles.length) return;
-    const btn = document.getElementById('extractBtn');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span> กำลังดึงข้อมูล...';
-    showStatus('extractStatus', 'info', '⏳ กำลังส่งไฟล์ให้ AI วิเคราะห์...');
-    document.getElementById('resultsCard').style.display = 'none';
+// ─── Preview & Edit ───────────────────────────────────────────────────────────
+function populatePreview(data) {
+  document.getElementById('company-name').value = data.company_name || '';
+  const warnEl = document.getElementById('extract-warning');
+  warnEl.innerHTML = data.warning
+    ? `<div class="alert alert-warning"><span>⚠️</span><span>${data.warning}</span></div>` : '';
+  extractedData.items = data.items || [];
+  renderTable();
+}
 
-    const allItems = [];
-    let companyName = '';
-    let errorCount = 0;
+function renderTable() {
+  const tbody = document.getElementById('preview-tbody');
+  tbody.innerHTML = '';
+  extractedData.items.forEach((item, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td style="color:var(--gray-400);font-size:12px;text-align:center">${i+1}</td>
+      <td><input class="editable" value="${esc(item.product_name)}"
+                 onchange="updateItem(${i},'product_name',this.value)" placeholder="ชื่อสินค้า"></td>
+      <td><input class="editable" value="${esc(item.departure_time||'')}"
+                 onchange="updateItem(${i},'departure_time',this.value)" placeholder="DEP. 08:00 - ARR. 17:00"></td>
+      <td><input class="editable price" value="${item.net_rate||''}"
+                 onchange="updateItem(${i},'net_rate',this.value)" placeholder="0"></td>
+      <td><input class="editable price" value="${item.selling_rate||''}"
+                 onchange="updateItem(${i},'selling_rate',this.value)" placeholder="0"></td>
+      <td><textarea class="editable" rows="2"
+                 onchange="updateItem(${i},'notes',this.value)"
+                 placeholder="หมายเหตุ">${esc(item.notes||'')}</textarea></td>
+      <td><button class="delete-row" onclick="deleteRow(${i})">✕</button></td>`;
+    tbody.appendChild(tr);
+  });
+  document.getElementById('row-count').textContent = extractedData.items.length + ' รายการ';
+}
 
-    for (let i = 0; i < currentFiles.length; i++) {
-      const file = currentFiles[i];
-      const pct = Math.round((i / currentFiles.length) * 100);
-      setProgress(pct, `กำลังดึงข้อมูล ${i + 1} / ${currentFiles.length}: ${file.name}`);
-      setFileStatus(i, '<span class="spinner-dark"></span>');
-      showStatus('extractStatus', 'info', `⏳ กำลังวิเคราะห์ไฟล์ที่ ${i + 1} / ${currentFiles.length}...`);
+function esc(s) { return String(s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+function updateItem(i, k, v) {
+  if (!extractedData.items[i]) return;
+  extractedData.items[i][k] = (k==='net_rate'||k==='selling_rate') ? (parseFloat(v)||v) : v;
+}
+function deleteRow(i) { extractedData.items.splice(i,1); renderTable(); }
+function addRow() {
+  extractedData.items.push({product_name:'',departure_time:'',net_rate:'',selling_rate:'',notes:''});
+  renderTable();
+  const rows = document.getElementById('preview-tbody').querySelectorAll('tr');
+  if (rows.length) rows[rows.length-1].querySelector('input').focus();
+}
 
-      try {
-        const form = new FormData();
-        form.append('file', file);
-        const res = await fetch(API + '/api/extract', { method: 'POST', body: form });
-        const data = await res.json();
+// ─── Import ───────────────────────────────────────────────────────────────────
+async function importToSheets() {
+  const apiUrl = getApiUrl();
+  if (!apiUrl) { showToast('กรุณาใส่ URL ของ Railway ก่อน', 'error'); return; }
 
-        if (!res.ok || data.error) {
-          setFileStatus(i, '❌');
-          errorCount++;
-          console.warn('Error on file', file.name, data.error);
-        } else {
-          setFileStatus(i, `✅ ${(data.items||[]).length} รายการ`);
-          if (!companyName && data.company_name) companyName = data.company_name;
-          (data.items || []).forEach(item => allItems.push(item));
-        }
-      } catch (e) {
-        setFileStatus(i, '❌');
-        errorCount++;
-        console.warn('Network error on file', file.name, e);
-      }
+  const company = document.getElementById('company-name').value.trim();
+  const sid = document.getElementById('spreadsheet-id').value.trim();
+
+  // Sync edits from table inputs
+  const rows = document.getElementById('preview-tbody').querySelectorAll('tr');
+  extractedData.items.forEach((item, i) => {
+    const row = rows[i];
+    if (!row) return;
+    const inputs = row.querySelectorAll('input');
+    const textareas = row.querySelectorAll('textarea');
+    if (inputs && inputs.length >= 4) {
+      item.product_name   = inputs[0].value;
+      item.departure_time = inputs[1].value;
+      const net = parseFloat(inputs[2].value);
+      const sel = parseFloat(inputs[3].value);
+      item.net_rate     = Number.isFinite(net) ? net : inputs[2].value;
+      item.selling_rate = Number.isFinite(sel) ? sel : inputs[3].value;
     }
-
-    setProgress(100, `เสร็จสิ้น`);
-    setTimeout(() => setProgress(0, ''), 1500);
-
-    if (allItems.length === 0) {
-      showStatus('extractStatus', 'error', '❌ ไม่พบข้อมูลจากไฟล์ที่อัปโหลด');
-    } else {
-      extractedData = { company_name: companyName, items: allItems };
-      renderResults(extractedData);
-      let msg = `✅ ดึงข้อมูลสำเร็จ พบทั้งหมด ${allItems.length} รายการ จาก ${currentFiles.length - errorCount} ไฟล์`;
-      if (errorCount > 0) msg += ` (ล้มเหลว ${errorCount} ไฟล์)`;
-      showStatus('extractStatus', errorCount > 0 ? 'info' : 'success', msg);
+    if (textareas && textareas.length >= 1) {
+      item.notes = textareas[0].value;
     }
-
-    btn.disabled = false;
-    btn.innerHTML = '🔍 ดึงข้อมูลราคา';
   });
 
-  function renderResults(data) {
-    const company = data.company_name || '';
-    const items = data.items || [];
-    document.getElementById('companyBadge').textContent = '🏢 ' + (company || 'ไม่ระบุบริษัท');
-    document.getElementById('countBadge').textContent = items.length + ' รายการ';
+  document.getElementById('import-btn').disabled = true;
+  document.getElementById('import-loading').style.display = 'block';
+  document.getElementById('import-error').innerHTML = '';
+  document.getElementById('import-result').style.display = 'none';
 
-    const tbody = document.getElementById('resultsBody');
-    tbody.innerHTML = '';
-    items.forEach((item, i) => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td><input type="text" value="${esc(item.product_name||'')}" data-i="${i}" data-f="product_name"></td>
-        <td><input type="number" value="${item.net_rate||item.net_price||0}" data-i="${i}" data-f="net_rate" style="text-align:right"></td>
-        <td><input type="number" value="${item.selling_rate||item.public_rate||0}" data-i="${i}" data-f="selling_rate" style="text-align:right"></td>
-        <td><textarea data-i="${i}" data-f="notes" rows="3" style="width:100%;min-height:60px;resize:vertical;font-family:inherit;font-size:inherit;padding:6px 8px;border-radius:6px;border:1px solid #cbd5e0;box-sizing:border-box;white-space:pre-wrap">${esc(item.notes||'')}</textarea></td>
-        <td><button class="del-btn" onclick="delRow(this)">✕</button></td>`;
-      tbody.appendChild(tr);
-    });
+  const body = { company_name: company, items: extractedData.items, spreadsheet_id: sid };
 
-    // live edit — covers both <input> and <textarea>
-    tbody.querySelectorAll('input, textarea').forEach(inp => {
-      inp.addEventListener('input', () => {
-        const i = +inp.dataset.i, f = inp.dataset.f;
-        extractedData.items[i][f] = inp.type === 'number' ? +inp.value : inp.value;
-      });
-    });
-
-    document.getElementById('resultsCard').style.display = 'block';
-    document.getElementById('importResult').innerHTML = '';
-  }
-
-  function delRow(btn) {
-    const tr = btn.closest('tr');
-    const i = +tr.querySelector('input').dataset.i;
-    extractedData.items.splice(i, 1);
-    renderResults(extractedData);
-  }
-
-  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
-
-  // --- Import to Sheet ---
-  async function postImport(payload) {
-    const res = await fetch(API + '/api/import-sheets', {
+  async function send(extra) {
+    const r = await fetch(`${apiUrl}/api/import-sheets`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(Object.assign({}, body, extra || {}))
     });
-    return res.json();
+    return r.json();
   }
 
-  document.getElementById('importBtn').addEventListener('click', async () => {
-    if (!extractedData) return;
-    const btn = document.getElementById('importBtn');
-    const resultEl = document.getElementById('importResult');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span> กำลังบันทึก...';
-    resultEl.innerHTML = '';
+  try {
+    let d = await send();
 
-    try {
-      // First attempt: no overwrite — backend returns conflict if duplicates exist
-      let data = await postImport({ ...extractedData, overwrite: false });
-
-      // Conflict: ask user whether to overwrite
-      if (data.conflict && data.duplicates && data.duplicates.length) {
-        const list = data.duplicates.slice(0, 8).map(n => '  • ' + n).join('\n');
-        const more = data.duplicates.length > 8 ? `\n  … และอีก ${data.duplicates.length - 8} รายการ` : '';
-        const msg =
-          `พบรายการซ้ำ ${data.duplicates.length} รายการในชีท:\n\n${list}${more}\n\n` +
-          `ต้องการลบของเดิมและลงทับด้วยข้อมูลใหม่ไหม?\n\n` +
-          `• กด OK = ลงทับ (ลบของเดิมแล้วใส่ข้อมูลใหม่แทน)\n` +
-          `• กด Cancel = ยกเลิก (ไม่บันทึกอะไรเลย)`;
-        const ok = window.confirm(msg);
-        if (!ok) {
-          resultEl.innerHTML =
-            `<div class="status" style="display:block;margin-top:10px;background:#fff4e6;color:#92400e;border:1px solid #f59e0b">⚠️ ยกเลิกการนำเข้า (พบข้อมูลซ้ำ)</div>`;
-          return;
-        }
-        // User confirmed: re-send with overwrite=true
-        btn.innerHTML = '<span class="spinner"></span> กำลังลงทับ...';
-        data = await postImport({ ...extractedData, overwrite: true });
+    // Conflict: server found rows whose (company | product+time) matches existing rows
+    if (!d.success && d.conflict) {
+      const preview = (d.duplicates || []).slice(0, 15).join('\n• ');
+      const more = d.duplicates && d.duplicates.length > 15 ? `\n…และอีก ${d.duplicates.length - 15} รายการ` : '';
+      const msg = `พบรายการซ้ำ ${d.duplicates.length} รายการในชีต:\n\n• ${preview}${more}\n\n`
+        + `จะเพิ่มใหม่ ${d.new_count} รายการ\n\n`
+        + `กด OK = ลบของเดิมแล้วลงทับ\nกด Cancel = ยกเลิกการนำเข้า`;
+      if (!confirm(msg)) {
+        showAlert('import-error', 'ยกเลิกการนำเข้าเนื่องจากพบรายการซ้ำ', 'warning');
+        return;
       }
-
-      if (data.success) {
-        resultEl.innerHTML =
-          `<div class="status success" style="display:block;margin-top:10px">${data.message}</div>`;
-      } else {
-        resultEl.innerHTML =
-          `<div class="status error" style="display:block;margin-top:10px">❌ ${data.error || data.message || 'เกิดข้อผิดพลาด'}</div>`;
-      }
-    } catch(e) {
-      resultEl.innerHTML =
-        `<div class="status error" style="display:block;margin-top:10px">❌ ${e.message}</div>`;
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = '📊 บันทึกเข้า Google Sheet';
+      d = await send({ overwrite: true });
     }
-  });
+
+    if (d.success) {
+      document.getElementById('import-success-msg').textContent = d.message;
+      document.getElementById('import-result').style.display = 'block';
+      const sheetUrl = `https://docs.google.com/spreadsheets/d/${sid}/edit`;
+      document.getElementById('open-sheet-final').href = sheetUrl;
+      showToast('🎉 ' + d.message, 'success');
+    } else {
+      showAlert('import-error', (d.error || 'นำเข้าไม่สำเร็จ') + (d.help ? '\n\n💡 ' + d.help : ''), 'error');
+    }
+  } catch(e) {
+    showAlert('import-error', 'เชื่อมต่อ backend ไม่ได้: ' + e.message, 'error');
+  } finally {
+    document.getElementById('import-btn').disabled = false;
+    document.getElementById('import-loading').style.display = 'none';
+  }
+}
+
+function startOver() {
+  clearFile();
+  extractedData = { company_name:'', items:[] };
+  document.getElementById('import-result').style.display = 'none';
+  document.getElementById('import-error').innerHTML = '';
+  goToStep(1);
+}
+
+// ─── UI Helpers ───────────────────────────────────────────────────────────────
+function showAlert(id, msg, type) {
+  const icon = type === 'error' ? '❌' : type === 'warning' ? '⚠️' : type === 'success' ? '✅' : 'ℹ️';
+  document.getElementById(id).innerHTML =
+    `<div class="alert alert-${type}"><span>${icon}</span>
+     <span style="white-space:pre-wrap">${msg}</span></div>`;
+}
+let _toastTimer;
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast-${type} show`;
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+}
 </script>
 </body>
 </html>

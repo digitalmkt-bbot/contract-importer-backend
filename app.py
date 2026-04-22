@@ -11,15 +11,43 @@ import json
 import re
 import tempfile
 import base64
+import logging
 from io import BytesIO
+
+# ─── Logging ──────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+log = logging.getLogger("contract-importer")
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 
-# CORS — อนุญาต frontend Vercel เรียก API ได้
-CORS(app, origins="*")
+# Upload limit (default 25 MB — enough for multi-page scanned PDFs)
+app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("MAX_UPLOAD_MB", "25")) * 1024 * 1024
+
+# CORS — default allow-all for dev; restrict in prod via CORS_ORIGINS="https://foo.com,https://bar.com"
+_cors_origins_env = os.environ.get("CORS_ORIGINS", "*").strip()
+if _cors_origins_env and _cors_origins_env != "*":
+    _cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
+else:
+    _cors_origins = "*"
+CORS(app, origins=_cors_origins)
 
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1X_gcLo3RROT11Hv9qvhiegoztk9STv4lP2aTq0Ih0Ho")
 SHEET_GID = int(os.environ.get("SHEET_GID", "384942453"))
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-2024-08-06")
+OPENAI_MAX_TOKENS = int(os.environ.get("OPENAI_MAX_TOKENS", "16000"))
+OPENAI_CONTINUATION_ROUNDS = int(os.environ.get("OPENAI_CONTINUATION_ROUNDS", "5"))
+
+# Allowed spreadsheet ID pattern — Google Sheets IDs are 40-50 alphanumeric + - + _
+_SHEET_ID_RE = re.compile(r"^[A-Za-z0-9_-]{20,120}$")
+
+
+@app.errorhandler(413)
+def _too_large(_):
+    limit_mb = app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024)
+    return jsonify({"error": f"ไฟล์ใหญ่เกินไป (จำกัด {limit_mb} MB)"}), 413
 
 
 # ─── Health Check ─────────────────────────────────────────────────────────────
@@ -51,7 +79,11 @@ def status():
         "has_api_key": bool(os.environ.get("OPENAI_API_KEY")),
         "has_credentials": bool(creds_str),
         "spreadsheet_id": SPREADSHEET_ID,
-        "service_account_email": service_account_email
+        "sheet_gid": SHEET_GID,
+        "service_account_email": service_account_email,
+        "model": OPENAI_MODEL,
+        "max_upload_mb": app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024),
+        "cors_origins": _cors_origins if _cors_origins != "*" else "*",
     })
 
 
@@ -78,16 +110,15 @@ def extract():
     try:
         from PIL import Image as PILImage
 
-        print(f"[EXTRACT] file={filename!r} content_type={uploaded.content_type!r} is_pdf={is_pdf} is_image={is_image} has_key={bool(api_key)}", flush=True)
-
+        log.info(f"[EXTRACT] file={filename!r} content_type={uploaded.content_type!r} is_pdf={is_pdf} is_image={is_image} has_key={bool(api_key)}")
         if is_pdf:
             from pdf2image import convert_from_path
             images = convert_from_path(tmp_path, dpi=200)
-            print(f"[EXTRACT] PDF pages={len(images)}", flush=True)
+            log.info(f"[EXTRACT] PDF pages={len(images)}")
         elif is_image:
             img = PILImage.open(tmp_path).convert("RGB")
             images = [img]
-            print(f"[EXTRACT] Image size={img.size}", flush=True)
+            log.info(f"[EXTRACT] Image size={img.size}")
         else:
             return jsonify({"error": "รองรับเฉพาะไฟล์ PDF, PNG, JPG, JPEG, WEBP เท่านั้น"}), 400
 
@@ -96,7 +127,7 @@ def extract():
         else:
             result = extract_with_ocr(images)
 
-        print(f"[EXTRACT] done: company={result.get('company_name')!r} items={len(result.get('items',[]))}", flush=True)
+        log.info(f"[EXTRACT] done: company={result.get('company_name')!r} items={len(result.get('items',[]))}")
         return jsonify(result)
 
     except Exception as e:
@@ -117,9 +148,14 @@ def _extract_partial_items(text):
     items = []
     company_name = ""
 
-    company_match = re.search(r'"company_name"\s*:\s*"([^"]*)"', text)
+    company_match = re.search(r'"company_name"\s*:\s*"((?:\\.|[^"\\])*)"', text)
     if company_match:
-        company_name = company_match.group(1)
+        raw = company_match.group(1)
+        # Decode JSON string escapes (\\" → ")
+        try:
+            company_name = json.loads(f'"{raw}"')
+        except Exception:
+            company_name = raw
 
     # Locate the start of the items array
     items_key_pos = text.find('"items"')
@@ -292,8 +328,8 @@ Rules:
         content.append({"type": "text", "text": user_prompt})
 
         response = client.chat.completions.create(
-            model="gpt-4o-2024-08-06",
-            max_tokens=16000,
+            model=OPENAI_MODEL,
+            max_tokens=OPENAI_MAX_TOKENS,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": content}
@@ -302,12 +338,11 @@ Rules:
 
         text = response.choices[0].message.content.strip()
         finish_reason = response.choices[0].finish_reason
-        print(f"[GPT] batch={batch_idx} finish_reason={finish_reason!r} response_len={len(text)} preview={text[:120]!r}", flush=True)
-
+        log.info(f"[GPT] batch={batch_idx} finish_reason={finish_reason!r} response_len={len(text)} preview={text[:120]!r}")
         # Detect refusal
         refusal_phrases = ["i'm sorry", "i cannot", "i can't", "unable to assist", "can't assist", "cannot assist"]
         if any(p in text.lower() for p in refusal_phrases) and "{" not in text:
-            print(f"[GPT] REFUSAL detected, skipping batch {batch_idx}", flush=True)
+            log.warning(f"[GPT] REFUSAL detected, skipping batch {batch_idx}")
             continue
 
         # Strip markdown code fences
@@ -316,10 +351,9 @@ Rules:
 
         # If truncated (finish_reason='length'), request continuation (loop up to 5 times)
         if finish_reason == "length":
-            print(f"[GPT] batch={batch_idx} TRUNCATED — requesting continuation loop", flush=True)
+            log.info(f"[GPT] batch={batch_idx} TRUNCATED — requesting continuation loop")
             partial_items, partial_company = _extract_partial_items(text)
-            print(f"[GPT] Partial extraction before continuation: {len(partial_items)} items", flush=True)
-
+            log.info(f"[GPT] Partial extraction before continuation: {len(partial_items)} items")
             all_cont_items = list(partial_items)
             conversation = [
                 {"role": "system", "content": system_prompt},
@@ -327,7 +361,7 @@ Rules:
                 {"role": "assistant", "content": text},
             ]
 
-            for cont_round in range(5):
+            for cont_round in range(OPENAI_CONTINUATION_ROUNDS):
                 last_item = all_cont_items[-1] if all_cont_items else {}
                 continuation_prompt = (
                     f"Your previous response was cut off. You have extracted {len(all_cont_items)} items so far. "
@@ -339,27 +373,27 @@ Rules:
                 try:
                     conversation.append({"role": "user", "content": continuation_prompt})
                     cont_response = client.chat.completions.create(
-                        model="gpt-4o-2024-08-06",
-                        max_tokens=16000,
+                        model=OPENAI_MODEL,
+                        max_tokens=OPENAI_MAX_TOKENS,
                         messages=conversation
                     )
                     cont_text = cont_response.choices[0].message.content.strip()
                     cont_finish = cont_response.choices[0].finish_reason
                     cont_text = re.sub(r"^```(?:json)?\s*\n?", "", cont_text, flags=re.MULTILINE)
                     cont_text = re.sub(r"\n?```\s*$", "", cont_text, flags=re.MULTILINE).strip()
-                    print(f"[GPT] Continuation round={cont_round} finish={cont_finish!r} len={len(cont_text)}", flush=True)
+                    log.info(f"[GPT] Continuation round={cont_round} finish={cont_finish!r} len={len(cont_text)}")
                     conversation.append({"role": "assistant", "content": cont_text})
                     try:
                         cont_result = json.loads(cont_text)
                         cont_items = cont_result.get("items", [])
                     except Exception:
                         cont_items, _ = _extract_partial_items(cont_text)
-                    print(f"[GPT] Continuation round={cont_round} items: {len(cont_items)}", flush=True)
+                    log.info(f"[GPT] Continuation round={cont_round} items: {len(cont_items)}")
                     all_cont_items.extend(cont_items)
                     if cont_finish != "length" or not cont_items:
                         break  # done — no more truncation or no new items
                 except Exception as ce:
-                    print(f"[GPT] Continuation round={cont_round} failed: {ce}", flush=True)
+                    log.warning(f"[GPT] Continuation round={cont_round} failed: {ce}")
                     break
 
             if batch_idx == 0 and not company_name:
@@ -369,17 +403,17 @@ Rules:
 
         try:
             batch_result = json.loads(text)
-            print(f"[GPT] JSON parse OK: {len(batch_result.get('items',[]))} items", flush=True)
+            log.info(f"[GPT] JSON parse OK: {len(batch_result.get('items',[]))} items")
         except json.JSONDecodeError as je:
-            print(f"[GPT] JSON parse FAILED: {je} — trying partial extraction, tail={text[-100:]!r}", flush=True)
+            log.warning(f"[GPT] JSON parse FAILED: {je} — trying partial extraction, tail={text[-100:]!r}")
             partial_items, partial_company = _extract_partial_items(text)
             if partial_items:
-                print(f"[GPT] Partial extraction rescued {len(partial_items)} items", flush=True)
+                log.info(f"[GPT] Partial extraction rescued {len(partial_items)} items")
                 if batch_idx == 0 and not company_name:
                     company_name = partial_company or ""
                 all_items.extend(partial_items)
             else:
-                print(f"[GPT] No items recovered, skipping batch {batch_idx}", flush=True)
+                log.warning(f"[GPT] No items recovered, skipping batch {batch_idx}")
             continue
 
         if batch_idx == 0 and not company_name:
@@ -396,51 +430,6 @@ Rules:
             deduped.append(item)
 
     return {"company_name": company_name, "items": deduped}
-
-
-def _extract_single_batch(client, system_prompt, user_prompt, images):
-    """Legacy single-batch extraction (kept for reference)."""
-    content = []
-    for img in images:
-        buffer = BytesIO()
-        img.save(buffer, format="JPEG", quality=85)
-        img_data = base64.b64encode(buffer.getvalue()).decode()
-        content.append({
-            "type": "image_url",
-            "image_url": {
-                "url": f"data:image/jpeg;base64,{img_data}",
-                "detail": "high"
-            }
-        })
-    content.append({"type": "text", "text": user_prompt})
-
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        max_tokens=16000,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": content}
-        ]
-    )
-
-    text = response.choices[0].message.content.strip()
-
-    # Detect refusal
-    refusal_phrases = ["i'm sorry", "i cannot", "i can't", "unable to assist", "can't assist", "cannot assist"]
-    if any(p in text.lower() for p in refusal_phrases) and "{" not in text:
-        raise ValueError(f"AI ไม่สามารถอ่านเอกสารนี้ได้ กรุณาลองใหม่หรือใช้ไฟล์ PNG/JPG แทน PDF")
-
-    # Strip markdown code fences
-    text = re.sub(r"^```(?:json)?\s*\n?", "", text, flags=re.MULTILINE)
-    text = re.sub(r"\n?```\s*$", "", text, flags=re.MULTILINE).strip()
-
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            return json.loads(match.group())
-        raise ValueError(f"ไม่สามารถแปลง JSON: {text[:300]}")
 
 
 def extract_with_ocr(images):
@@ -489,12 +478,16 @@ def extract_with_ocr(images):
 def import_sheets():
     data = request.json or {}
     items = data.get("items", [])
-    company = data.get("company_name", "")
-    spreadsheet_id = data.get("spreadsheet_id", SPREADSHEET_ID)
-    overwrite = bool(data.get("overwrite", False))  # NEW: if True, overwrite existing rows in place
+    company = (data.get("company_name") or "").strip()
+    spreadsheet_id = (data.get("spreadsheet_id") or SPREADSHEET_ID).strip()
+    overwrite = bool(data.get("overwrite", False))
 
     if not items:
         return jsonify({"error": "ไม่มีข้อมูลที่จะนำเข้า"}), 400
+    if not isinstance(items, list):
+        return jsonify({"error": "items ต้องเป็น array"}), 400
+    if not _SHEET_ID_RE.match(spreadsheet_id):
+        return jsonify({"error": f"spreadsheet_id ไม่ถูกต้อง: {spreadsheet_id!r}"}), 400
 
     # อ่าน credentials จาก Environment Variable
     creds_json_str = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")

@@ -94,6 +94,24 @@ Response:
 }
 ```
 
+### `POST /api/extract/stream`
+
+Same payload as `/api/extract`, but the response is **NDJSON** (one JSON object
+per line) so the client can show live progress. Event shapes:
+
+```json
+{"event":"start","pages":5,"filename":"noah-2026.pdf"}
+{"event":"page","page":1,"total":5}
+{"event":"items","page":1,"items":[...],"company_name":"NOAH Marine"}
+{"event":"page","page":2,"total":5}
+...
+{"event":"done","company_name":"NOAH Marine","items":[... deduped ...]}
+```
+
+On failure the last line is `{"event":"error","error":"...","detail":"..."}`.
+
+The frontend uses this to update "page N of M" while a 20-page PDF processes.
+
 ### `POST /api/import-sheets`
 ```json
 {
@@ -112,6 +130,33 @@ Response:
   **H** selling_rate · **Q** notes.
   Rows are written with `ws.update("E{r}:Q{r}", ...)` (not `append_rows`) so the
   sheet's table detection doesn't offset the data.
+
+---
+
+## Security
+
+### API token (optional)
+
+Set `API_TOKEN=<something-random>` in Railway → the API will require:
+
+```
+X-API-Token: <something-random>
+```
+
+on both `/api/extract` and `/api/import-sheets`. Clients can also pass
+`?api_token=` as a query string. Without the env var set, endpoints stay open
+(useful for dev).
+
+### Rate limit
+
+In-memory token bucket keyed by `X-Forwarded-For` / remote address. Defaults to
+**10 requests per 60 seconds per IP**. Tune via `RATE_LIMIT_MAX` and
+`RATE_LIMIT_WINDOW`; set `RATE_LIMIT_MAX=0` to disable.
+
+The limit is **shared across all endpoints** guarded by `@require_auth` so a
+burst of `/api/extract` calls also eats into `/api/import-sheets` quota. For a
+Railway single-instance deploy this is enough; if you scale to multiple
+instances, swap the in-memory deque for Redis.
 
 ---
 

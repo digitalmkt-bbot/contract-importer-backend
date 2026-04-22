@@ -249,6 +249,8 @@ tbody td { padding: 10px 14px; }
     <label>🔗 Backend URL (Railway):</label>
     <input type="text" id="api-url" placeholder="https://your-app.railway.app"
            oninput="saveApiUrl()" onblur="checkStatus()">
+    <input type="password" id="api-token" placeholder="API token (optional)"
+           style="min-width:140px" oninput="saveApiToken()">
     <button class="btn btn-primary btn-sm" onclick="checkStatus()">🔄 ตรวจสอบ</button>
   </div>
 
@@ -278,10 +280,10 @@ tbody td { padding: 10px 14px; }
       <div class="dropzone" id="dropzone"
            ondrop="handleDrop(event)" ondragover="handleDragOver(event)"
            ondragleave="handleDragLeave()" onclick="document.getElementById('pdf-input').click()">
-        <input type="file" id="pdf-input" accept=".pdf,.png,.jpg,.jpeg,.webp,image/*" onchange="handleFileSelect(event)">
+        <input type="file" id="pdf-input" accept=".pdf,.png,.jpg,.jpeg,.webp,image/*" multiple onchange="handleFileSelect(event)">
         <div class="dropzone-icon">📋</div>
         <div class="dropzone-text">คลิกหรือลากไฟล์ PDF มาวางที่นี่</div>
-        <div class="dropzone-sub">รองรับ PDF / PNG / JPG / WEBP — NOAH · Charter Marine · และอื่นๆ</div>
+        <div class="dropzone-sub">รองรับ PDF / PNG / JPG / WEBP (เลือกได้หลายไฟล์) — NOAH · Charter Marine · และอื่นๆ</div>
       </div>
 
       <div id="file-badge" style="display:none">
@@ -297,6 +299,7 @@ tbody td { padding: 10px 14px; }
         <p style="text-align:center;margin-top:10px;font-size:13px;color:var(--gray-600)">
           🤖 AI กำลังวิเคราะห์และดึงข้อมูลจาก PDF...
         </p>
+        <p id="extract-progress" style="display:none;text-align:center;margin-top:6px;font-size:12px;color:var(--ocean-dark);font-weight:600"></p>
       </div>
       <div id="extract-error"></div>
     </div>
@@ -319,6 +322,7 @@ tbody td { padding: 10px 14px; }
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <span class="count-badge" id="row-count">0 รายการ</span>
           <button class="btn btn-outline btn-sm" onclick="addRow()">+ เพิ่มรายการ</button>
+          <button class="btn btn-outline btn-sm" onclick="exportCsv()">⬇️ Export CSV</button>
           <button class="btn btn-outline btn-sm" onclick="goToStep(1)">← อัปโหลดใหม่</button>
         </div>
       </div>
@@ -409,9 +413,21 @@ tbody td { padding: 10px 14px; }
 <script>
 // ─── Config ───────────────────────────────────────────────────────────────────
 const LS_KEY = 'contract_importer_api_url';
+const LS_TOKEN_KEY = 'contract_importer_api_token';
 
 function getApiUrl() {
   return (document.getElementById('api-url').value || '').replace(/\/$/, '');
+}
+
+function getApiToken() {
+  return (document.getElementById('api-token')?.value || '').trim();
+}
+
+function authHeaders(extra) {
+  const h = Object.assign({}, extra || {});
+  const t = getApiToken();
+  if (t) h['X-API-Token'] = t;
+  return h;
 }
 
 function saveApiUrl() {
@@ -419,10 +435,16 @@ function saveApiUrl() {
   updateSheetLink();
 }
 
+function saveApiToken() {
+  localStorage.setItem(LS_TOKEN_KEY, getApiToken());
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
   const saved = localStorage.getItem(LS_KEY) || '';
   document.getElementById('api-url').value = saved;
+  const savedTok = localStorage.getItem(LS_TOKEN_KEY) || '';
+  document.getElementById('api-token').value = savedTok;
   if (saved) checkStatus();
   updateSheetLink();
 });
@@ -446,8 +468,18 @@ async function checkStatus() {
   alertEl.innerHTML = '';
 
   try {
-    const r = await fetch(`${url}/api/status`, { signal: AbortSignal.timeout(8000) });
+    const r = await fetch(`${url}/api/status`, {
+      signal: AbortSignal.timeout(8000),
+      headers: authHeaders(),
+    });
     const d = await r.json();
+    window._lastStatus = d;
+    // Sync default spreadsheet_id from backend if the input is still empty/default
+    const sidEl = document.getElementById('spreadsheet-id');
+    if (sidEl && d.spreadsheet_id && (!sidEl.value || sidEl.value.trim() === '')) {
+      sidEl.value = d.spreadsheet_id;
+      updateSheetLink();
+    }
 
     dot.className = 'status-dot';
     txt.textContent = 'เชื่อมต่อสำเร็จ';
@@ -455,6 +487,7 @@ async function checkStatus() {
     const warnings = [];
     if (!d.has_api_key) warnings.push('❌ OPENAI_API_KEY — ยังไม่ได้ตั้งค่าบน Railway');
     if (!d.has_credentials) warnings.push('❌ GOOGLE_CREDENTIALS_JSON — ยังไม่ได้ตั้งค่าบน Railway');
+    if (d.auth_required && !getApiToken()) warnings.push('🔒 Backend ต้องการ API token — กรอก token ในช่องด้านบน');
 
     if (warnings.length > 0) {
       alertEl.innerHTML = `<div class="alert alert-warning"><span>⚙️</span>
@@ -506,15 +539,17 @@ function updateSheetLink() {
 }
 
 // ─── File Handling ────────────────────────────────────────────────────────────
-let selectedFile = null;
+let selectedFiles = [];
 
 function handleDrop(e) {
   e.preventDefault();
   document.getElementById('dropzone').classList.remove('drag-over');
-  const f = e.dataTransfer.files[0];
-  if (!f) return;
-  if (isAcceptedFile(f)) setFile(f);
-  else showToast('กรุณาเลือกไฟล์ PDF หรือรูปภาพ (PNG/JPG/WEBP)', 'error');
+  const files = Array.from(e.dataTransfer.files || []).filter(isAcceptedFile);
+  if (!files.length) {
+    showToast('กรุณาเลือกไฟล์ PDF หรือรูปภาพ (PNG/JPG/WEBP)', 'error');
+    return;
+  }
+  addFiles(files);
 }
 
 function isAcceptedFile(f) {
@@ -526,19 +561,39 @@ function isAcceptedFile(f) {
 }
 function handleDragOver(e) { e.preventDefault(); document.getElementById('dropzone').classList.add('drag-over'); }
 function handleDragLeave() { document.getElementById('dropzone').classList.remove('drag-over'); }
-function handleFileSelect(e) { if (e.target.files[0]) setFile(e.target.files[0]); }
+function handleFileSelect(e) {
+  const files = Array.from(e.target.files || []).filter(isAcceptedFile);
+  if (files.length) addFiles(files);
+}
 
-function setFile(file) {
-  selectedFile = file;
-  document.getElementById('file-name').textContent = file.name;
-  document.getElementById('file-badge').style.display = 'block';
-  document.getElementById('extract-btn').disabled = false;
+function addFiles(files) {
+  selectedFiles.push(...files);
+  renderFileBadges();
+  document.getElementById('extract-btn').disabled = selectedFiles.length === 0;
   document.getElementById('extract-error').innerHTML = '';
 }
 
+function renderFileBadges() {
+  const holder = document.getElementById('file-badge');
+  if (selectedFiles.length === 0) { holder.style.display = 'none'; holder.innerHTML = ''; return; }
+  holder.style.display = 'block';
+  holder.innerHTML = selectedFiles.map((f, i) => `
+    <div class="file-badge">
+      <span>📋</span>
+      <span>${esc(f.name)} <small style="color:var(--gray-400)">(${(f.size/1024).toFixed(1)} KB)</small></span>
+      <button class="btn btn-sm btn-outline" onclick="removeFile(${i})" style="padding:2px 10px">✕</button>
+    </div>`).join('');
+}
+
+function removeFile(i) {
+  selectedFiles.splice(i, 1);
+  renderFileBadges();
+  document.getElementById('extract-btn').disabled = selectedFiles.length === 0;
+}
+
 function clearFile() {
-  selectedFile = null;
-  document.getElementById('file-badge').style.display = 'none';
+  selectedFiles = [];
+  renderFileBadges();
   document.getElementById('pdf-input').value = '';
   document.getElementById('extract-btn').disabled = true;
 }
@@ -547,28 +602,112 @@ function clearFile() {
 async function extractData() {
   const apiUrl = getApiUrl();
   if (!apiUrl) { showToast('กรุณาใส่ URL ของ Railway ก่อน', 'error'); return; }
-  if (!selectedFile) return;
+  if (!selectedFiles.length) return;
 
   document.getElementById('extract-loading').style.display = 'block';
   document.getElementById('extract-btn').disabled = true;
   document.getElementById('extract-error').innerHTML = '';
+  const progressEl = document.getElementById('extract-progress');
+  progressEl.style.display = 'block';
+  progressEl.textContent = '';
 
-  const fd = new FormData();
-  fd.append('file', selectedFile);
+  const agg = { company_name: '', items: [] };
+  let hadError = null;
 
-  try {
-    const r = await fetch(`${apiUrl}/api/extract`, { method: 'POST', body: fd });
-    const d = await r.json();
-    if (d.error) { showAlert('extract-error', d.error, 'error'); return; }
-    extractedData = d;
-    populatePreview(d);
-    goToStep(2);
-  } catch(e) {
-    showAlert('extract-error', 'เชื่อมต่อ backend ไม่ได้: ' + e.message, 'error');
-  } finally {
-    document.getElementById('extract-loading').style.display = 'none';
-    document.getElementById('extract-btn').disabled = false;
+  for (let idx = 0; idx < selectedFiles.length; idx++) {
+    const f = selectedFiles[idx];
+    progressEl.textContent = `📄 (${idx+1}/${selectedFiles.length}) ${f.name} — กำลังเริ่ม…`;
+    try {
+      const result = await extractOneFile(apiUrl, f, (ev) => {
+        if (ev.event === 'start')      progressEl.textContent = `📄 (${idx+1}/${selectedFiles.length}) ${f.name} — ${ev.pages} หน้า`;
+        else if (ev.event === 'page')  progressEl.textContent = `📄 (${idx+1}/${selectedFiles.length}) ${f.name} — หน้า ${ev.page}/${ev.total}`;
+        else if (ev.event === 'items') progressEl.textContent = `📄 (${idx+1}/${selectedFiles.length}) ${f.name} — หน้า ${ev.page}: พบ ${ev.items.length} รายการ`;
+      });
+      if (!agg.company_name && result.company_name) agg.company_name = result.company_name;
+      agg.items.push(...(result.items || []));
+      if (result.warning && !agg.warning) agg.warning = result.warning;
+    } catch (e) {
+      hadError = e;
+      break;
+    }
   }
+
+  progressEl.style.display = 'none';
+  document.getElementById('extract-loading').style.display = 'none';
+  document.getElementById('extract-btn').disabled = false;
+
+  if (hadError) {
+    showAlert('extract-error', 'ดึงข้อมูลไม่สำเร็จ: ' + (hadError.message || hadError), 'error');
+    return;
+  }
+
+  // De-dupe across files: same product_name + net_rate
+  const seen = new Set();
+  agg.items = agg.items.filter(it => {
+    const k = (it.product_name||'') + '|' + String(it.net_rate||'');
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+
+  extractedData = agg;
+  populatePreview(agg);
+  goToStep(2);
+}
+
+async function extractOneFile(apiUrl, file, onEvent) {
+  const fd = new FormData();
+  fd.append('file', file);
+
+  // Prefer NDJSON streaming endpoint; fall back to plain /api/extract if 404
+  const streamUrl = `${apiUrl}/api/extract/stream`;
+  let resp;
+  try {
+    resp = await fetch(streamUrl, { method: 'POST', body: fd, headers: authHeaders() });
+  } catch (e) {
+    throw new Error('เชื่อมต่อ backend ไม่ได้: ' + e.message);
+  }
+  if (resp.status === 404) {
+    // Older backend without streaming endpoint
+    const r2 = await fetch(`${apiUrl}/api/extract`, { method: 'POST', body: fd, headers: authHeaders() });
+    const d2 = await r2.json();
+    if (d2.error) throw new Error(d2.error);
+    return d2;
+  }
+  if (resp.status === 401) throw new Error('API token ผิดหรือยังไม่ได้กรอก');
+  if (resp.status === 429) {
+    const d = await resp.json().catch(()=>({}));
+    throw new Error(d.error || 'Rate limit exceeded');
+  }
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error('HTTP ' + resp.status + ': ' + txt.slice(0, 200));
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let finalResult = { company_name: '', items: [] };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line) continue;
+      let ev;
+      try { ev = JSON.parse(line); } catch { continue; }
+      onEvent && onEvent(ev);
+      if (ev.event === 'done') {
+        finalResult = { company_name: ev.company_name || '', items: ev.items || [] };
+      } else if (ev.event === 'error') {
+        throw new Error(ev.error || 'Unknown backend error');
+      }
+    }
+  }
+  return finalResult;
 }
 
 // ─── Preview & Edit ───────────────────────────────────────────────────────────
@@ -656,7 +795,7 @@ async function importToSheets() {
   async function send(extra) {
     const r = await fetch(`${apiUrl}/api/import-sheets`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(Object.assign({}, body, extra || {}))
     });
     return r.json();
@@ -702,6 +841,52 @@ function startOver() {
   document.getElementById('import-result').style.display = 'none';
   document.getElementById('import-error').innerHTML = '';
   goToStep(1);
+}
+
+function csvEscape(v) {
+  const s = String(v == null ? '' : v);
+  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+function exportCsv() {
+  // Sync any in-progress edits from the table first
+  const rows = document.getElementById('preview-tbody').querySelectorAll('tr');
+  extractedData.items.forEach((item, i) => {
+    const row = rows[i]; if (!row) return;
+    const inputs = row.querySelectorAll('input');
+    const textareas = row.querySelectorAll('textarea');
+    if (inputs && inputs.length >= 4) {
+      item.product_name   = inputs[0].value;
+      item.departure_time = inputs[1].value;
+      const net = parseFloat(inputs[2].value);
+      const sel = parseFloat(inputs[3].value);
+      item.net_rate     = Number.isFinite(net) ? net : inputs[2].value;
+      item.selling_rate = Number.isFinite(sel) ? sel : inputs[3].value;
+    }
+    if (textareas && textareas.length >= 1) item.notes = textareas[0].value;
+  });
+  const company = document.getElementById('company-name').value.trim();
+  const header = ['company_name', 'product_name', 'departure_time', 'net_rate', 'selling_rate', 'notes'];
+  const lines = [header.join(',')];
+  for (const it of extractedData.items) {
+    lines.push([
+      csvEscape(company),
+      csvEscape(it.product_name),
+      csvEscape(it.departure_time || ''),
+      csvEscape(it.net_rate),
+      csvEscape(it.selling_rate),
+      csvEscape(it.notes || ''),
+    ].join(','));
+  }
+  const blob = new Blob(["\uFEFF" + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+  a.href = url;
+  a.download = `contract-preview-${(company||'export').replace(/[^A-Za-z0-9ก-ฯ]+/g,'_')}-${stamp}.csv`;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
 }
 
 // ─── UI Helpers ───────────────────────────────────────────────────────────────

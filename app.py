@@ -43,6 +43,68 @@ OPENAI_CONTINUATION_ROUNDS = int(os.environ.get("OPENAI_CONTINUATION_ROUNDS", "5
 # Allowed spreadsheet ID pattern — Google Sheets IDs are 40-50 alphanumeric + - + _
 _SHEET_ID_RE = re.compile(r"^[A-Za-z0-9_-]{20,120}$")
 
+# ─── Auth + Rate Limit ────────────────────────────────────────────────────────
+import time as _time
+import threading as _threading
+from collections import deque as _deque
+from functools import wraps as _wraps
+
+API_TOKEN = os.environ.get("API_TOKEN", "").strip()
+RATE_LIMIT_MAX = int(os.environ.get("RATE_LIMIT_MAX", "10"))        # requests
+RATE_LIMIT_WINDOW = int(os.environ.get("RATE_LIMIT_WINDOW", "60"))  # seconds
+
+_rate_lock = _threading.Lock()
+_rate_buckets: "dict[str, _deque]" = {}
+
+
+def _client_ip(req):
+    """Best-effort client IP that respects Railway/Vercel reverse proxies."""
+    fwd = req.headers.get("X-Forwarded-For", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return req.remote_addr or "unknown"
+
+
+def _rate_limit_check(ip):
+    """Return (ok, retry_after_seconds)."""
+    if RATE_LIMIT_MAX <= 0:
+        return True, 0
+    now = _time.monotonic()
+    window_start = now - RATE_LIMIT_WINDOW
+    with _rate_lock:
+        bucket = _rate_buckets.setdefault(ip, _deque())
+        while bucket and bucket[0] < window_start:
+            bucket.popleft()
+        if len(bucket) >= RATE_LIMIT_MAX:
+            retry = int(bucket[0] + RATE_LIMIT_WINDOW - now) + 1
+            return False, max(retry, 1)
+        bucket.append(now)
+        return True, 0
+
+
+def require_auth(func):
+    """Decorator: enforce API_TOKEN (if set) + per-IP rate limit."""
+    @_wraps(func)
+    def wrapper(*args, **kwargs):
+        if API_TOKEN:
+            provided = (request.headers.get("X-API-Token")
+                        or request.args.get("api_token")
+                        or "")
+            if provided != API_TOKEN:
+                log.warning("Auth rejected for %s on %s", _client_ip(request), request.path)
+                return jsonify({"error": "Unauthorized — missing or invalid X-API-Token"}), 401
+        ok, retry = _rate_limit_check(_client_ip(request))
+        if not ok:
+            resp = jsonify({
+                "error": f"Rate limit exceeded — try again in {retry}s",
+                "retry_after": retry,
+            })
+            resp.status_code = 429
+            resp.headers["Retry-After"] = str(retry)
+            return resp
+        return func(*args, **kwargs)
+    return wrapper
+
 
 @app.errorhandler(413)
 def _too_large(_):
@@ -84,12 +146,15 @@ def status():
         "model": OPENAI_MODEL,
         "max_upload_mb": app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024),
         "cors_origins": _cors_origins if _cors_origins != "*" else "*",
+        "auth_required": bool(API_TOKEN),
+        "rate_limit": {"max": RATE_LIMIT_MAX, "window_seconds": RATE_LIMIT_WINDOW},
     })
 
 
 # ─── Extract ──────────────────────────────────────────────────────────────────
 
 @app.route("/api/extract", methods=["POST"])
+@require_auth
 def extract():
     # รับทั้ง "file" (ใหม่) และ "pdf" (เก่า) เพื่อ backward-compatibility
     uploaded = request.files.get("file") or request.files.get("pdf")
@@ -135,6 +200,244 @@ def extract():
         return jsonify({"error": str(e), "detail": traceback.format_exc()}), 500
     finally:
         os.unlink(tmp_path)
+
+
+@app.route("/api/extract/stream", methods=["POST"])
+@require_auth
+def extract_stream():
+    """NDJSON streaming extract — one JSON object per line for real-time progress."""
+    from flask import Response, stream_with_context
+
+    uploaded = request.files.get("file") or request.files.get("pdf")
+    if not uploaded:
+        return jsonify({"error": "ไม่พบไฟล์ (ส่งเป็น field ชื่อ 'file')"}), 400
+
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    filename = (uploaded.filename or "").lower()
+    is_pdf = filename.endswith(".pdf") or uploaded.content_type == "application/pdf"
+    is_image = any(filename.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".webp"))
+
+    suffix = ".pdf" if is_pdf else os.path.splitext(filename)[1] or ".png"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        uploaded.save(tmp.name)
+        tmp_path = tmp.name
+
+    try:
+        from PIL import Image as PILImage
+        if is_pdf:
+            from pdf2image import convert_from_path
+            images = convert_from_path(tmp_path, dpi=200)
+        elif is_image:
+            images = [PILImage.open(tmp_path).convert("RGB")]
+        else:
+            return jsonify({"error": "รองรับเฉพาะไฟล์ PDF, PNG, JPG, JPEG, WEBP เท่านั้น"}), 400
+    except Exception as e:
+        os.unlink(tmp_path)
+        return jsonify({"error": str(e)}), 500
+
+    def generate():
+        try:
+            yield from _extract_stream_ndjson(images, api_key, filename)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+_CLAUDE_SYSTEM_PROMPT = (
+    "You are a data extraction assistant for a travel agency's internal pricing system. "
+    "Your job is to read tour operator rate sheets / price contracts and extract structured pricing data. "
+    "Always respond with valid JSON only — no markdown, no explanations."
+)
+
+_CLAUDE_USER_PROMPT = """Extract ALL pricing data from this tour operator contract/rate sheet image(s).
+CRITICAL: You MUST extract EVERY SINGLE ROW that contains a price or rate — do NOT skip, summarize, or truncate any row.
+
+Return ONLY a JSON object in this exact format (no markdown code blocks, no extra text):
+{
+  "company_name": "name of the tour operator / supplier company",
+  "items": [
+    {
+      "product_name": "Oneday Tour Type | Program Name | From → To | Passenger Type",
+      "departure_time": "DEP. 08:00 - ARR. 17:00",
+      "net_rate": 1000,
+      "selling_rate": 1500,
+      "notes": "any other remarks or conditions"
+    }
+  ]
+}
+
+Rules:
+- company_name: the operator/supplier name (not the travel agent)
+- product_name: combine ALL available fields below, separated by " | " — include every piece of information found:
+    1. SECTION / BOAT TYPE header — CRITICAL: Many contracts have multiple sections separated by bold headers such as:
+       "Big Boat", "Speed Boat", "Speedboat", "Big Boat Program", "Speed Boat Program",
+       "เรือใหญ่", "เรือเร็ว", "Joint Tour", "Private Tour", "Standard", "Premium",
+       "Oneday Tour", "Liveaboard", "Transfer", "Package", or any other section divider.
+       You MUST include this header as the FIRST segment of product_name for EVERY row that falls under that section.
+       NEVER drop or omit the section/boat type header — it is what distinguishes one group of products from another.
+    2. Program name (e.g. "Phi Phi Island Tour", "Similan Diving Day Trip", "ATV Adventure") — always include
+    3. Route: departure point → destination (e.g. "Phuket → Phi Phi", "Khao Lak → Similan", "Krabi → Railay") — look for columns: From/To, From, Route, Departure Point, Origin/Destination — include if found
+    4. PASSENGER TYPE / AGE RANGE — ALWAYS append as the LAST segment of product_name whenever the row has a specific passenger type or age category:
+       - Use the exact label from the document: "Adult", "Child", "Infant", "CHD", "INF", "Pax 1-4", "Min 15 Pax", "Per Person", etc.
+       - This is MANDATORY: every row that corresponds to a specific age group or pax tier MUST have that label at the end of product_name.
+       - Do NOT put passenger type / age category in the notes field.
+    Build product_name by joining only the fields that are actually present in the document.
+    Examples (showing multi-section contract with Big Boat and Speed Boat sections):
+      "Big Boat | Phi Phi Island Tour | Phuket → Phi Phi | Adult"
+      "Big Boat | Phi Phi Island Tour | Phuket → Phi Phi | Child"
+      "Big Boat | Phi Phi Island Tour | Phuket → Phi Phi | Infant"
+      "Speed Boat | Phi Phi Island Tour | Phuket → Phi Phi | Adult"
+      "Speed Boat | Phi Phi Island Tour | Phuket → Phi Phi | Child"
+      "Speed Boat | Similan Day Trip | Khao Lak → Similan | Adult"
+      "Liveaboard | Similan Islands | Khao Lak → Similan | Adult"
+      "Transfer | Phuket Airport → Patong Hotel | 1-4 Pax"
+    Include as much detail as possible — do NOT omit section header, route, or passenger type if they appear anywhere in the row or surrounding headers.
+- departure_time: extract the departure/arrival time as a SEPARATE field — do NOT embed it in product_name.
+    Look for columns: Time DEP.-ARR., Time, Schedule, Departure Time, Pick-up Time, เวลา, ออกเดินทาง, เวลารับ
+    Format: "DEP. HH:MM - ARR. HH:MM" — use the exact values from the document.
+    If only departure time is shown (no arrival), use: "DEP. HH:MM"
+    If the row says Full Day / Half Day / duration only (e.g. "Full Day", "Half Day AM", "2D1N"), put that in departure_time.
+    CRITICAL: If the same tour/program has MULTIPLE departure times with DIFFERENT prices, each time MUST be a SEPARATE item with its own departure_time value.
+    TRANSFER TABLES: if the table has a "Pick-up Time" column PLUS a boat departure time in the column header (e.g. header says "BIG BOAT — Dep. 8:45" and the row shows pickup 07:00-07:15), combine them as: "PICKUP 07:00-07:15 | DEP. 08:45".
+    If no time is found for a row, use "" (empty string).
+- net_rate: agent/net cost price in THB (number only). Look for: Net Rate, Net Price, Agent Rate, Net, Cost
+- selling_rate: retail/public price in THB. Look for: Selling Rate, Public Rate, Rack Rate, Adult Rate, Full Price. Use 0 if not found.
+- notes: CRITICAL — the notes field is the ONE AND ONLY place where Remark / Note / Condition text belongs. It MUST contain the COMPLETE, FULL, VERBATIM text from every remark/note/condition source on the page. Do NOT summarize, shorten, paraphrase, or omit any part. Do NOT place remark text in product_name, departure_time, or any other field.
+    ABSOLUTE RULE: If the document has text labeled "Remark", "Remarks", "REMARK", "หมายเหตุ", "หมายเหตุ:", "Note", "Notes", "Condition", "Conditions", "Terms", "T&C", "Special Condition", "เงื่อนไข", footnote markers (*, **, ¹, ²), or any other annotation block — ALL of that text MUST appear in the notes field. Nothing should be dropped.
+    Extract and combine ALL of the following sources into notes (joined with " | "):
+    1. PAGE-LEVEL REMARK (MOST IMPORTANT): If the page has ANY general Remark / Note / หมายเหตุ / Condition section — whether at the bottom, top, side, a footnote block, a boxed callout, or free-floating text below the rate table — that is NOT tied to a specific row, copy that ENTIRE TEXT into the notes of EVERY SINGLE product on that page. Every product must carry the page-level remark. NEVER leave notes blank while page-level remarks exist.
+    2. ROW-LEVEL REMARK: Also copy the ENTIRE TEXT from any per-row column named "Remark", "Remarks", "หมายเหตุ", "Note", "Notes", "Condition", "Conditions", "Remark/Note" — paste every word exactly as written, including numbers, symbols, bullet points, and line breaks (use a single space to join multiple lines).
+    3. FOOTNOTES: If the row or table uses a footnote marker (e.g. "*", "**", "¹") that references text elsewhere on the page, copy that referenced footnote text into the notes of every row that carries the marker.
+    4. "Extra Transfer" / "Extra Transfer Fee": if the document has a section, row, or column for extra transfer cost/conditions relating to a product, copy that full value into the notes of the matching product row.
+    5. Any other special conditions NOT related to passenger type/age group (e.g. "Include transfer", "Min 2 pax", "Seasonal surcharge applies", "Valid Nov-Apr", "Not valid on public holidays", "Surcharge Peak 15 Dec–15 Jan +500", "Black-out dates").
+    6. Operating dates / validity period text (e.g. "Valid 1 Nov 2025 – 31 Oct 2026", "Seasonal: Nov–Apr only") — include verbatim in every product's notes on that page.
+    IMPORTANT: The notes field is allowed — and expected — to be very long. Preserve the full text; do NOT truncate. Every product on a page that has ANY remark content somewhere on the page MUST have that remark content in its notes field.
+- MUST include ALL line items without exception: Adult, Child, Infant, every pax count variation, every category
+- If prices vary by passenger type or group size, each must be a SEPARATE item — with the type/tier appended to product_name
+- If a table header applies to multiple rows below it, repeat the header info in each row's product_name
+- Do NOT stop early — extract until the LAST row of data on the page
+
+- CRITICAL — MATRIX / CROSS-TABULATED TABLES (transfer pages, per-area rate sheets, etc.):
+    Some pages have a GRID where ROWS = one dimension (e.g. pickup area, region, hotel zone) and COLUMNS = another dimension (e.g. boat type, transfer method, vehicle type, season).
+    You MUST emit ONE SEPARATE item for EVERY non-empty CELL in the grid — i.e. rows × columns = total items.
+    Common signals this is a matrix table:
+      - Multiple price columns with different headers like "BIG BOAT / SPEED BOAT", "JOIN TRANSFER / PRIVATE VAN", "Adult / Child / Infant", "Low / High / Peak Season"
+      - A header row with sub-headers (e.g. "BIG BOAT — Dep. 8:45" above one column, "SPEED BOAT — Dep. 9:30" above another)
+      - An "Area" or "From/To" column listing multiple pickup/dropoff zones
+    How to expand:
+      - For each area row × each price column, create ONE item
+      - product_name MUST include: column header (boat type / transfer method / vehicle type) + "Transfer" (or the section title) + the area text + the pricing unit (e.g. "Per Person", "Per Van", "1-4 Pax")
+      - departure_time MUST combine the row's pickup time with the column's boat/service departure time: "PICKUP 07:00-07:15 | DEP. 08:45"
+      - If the pickup cell contains descriptive text instead of a time (e.g. "According to boat arrival time", "By request", "Upon confirmation"), use that text VERBATIM as the pickup value: "PICKUP According to boat arrival time | DEP. 08:45"
+      - If a single descriptive pickup cell SPANS multiple boat columns (merged cell), apply the same pickup text to every boat type — emit one item per boat × transfer method
+      - net_rate = the number in that specific PRICE cell (Join Transfer or Private Van column). If the PRICE cell shows "NO SERVICE", "-", "N/A", or is blank → SKIP that specific cell (do NOT emit an item for it). Do NOT treat pickup-time cells as price cells.
+      - notes: include the area description, pricing unit ("PRICE/PERSON/WAY", "PRICE/VAN/WAY"), max capacity ("Max 10 person/van"), and any page-level remarks
+    Example — for a row "Rawai/Naiharn: Big Boat pickup 7:00, Speed Boat pickup 7:30, Join Transfer 200/pax, Private Van 800/way":
+      → "Transfer | Big Boat | Rawai/Naiharn → Sea Angel Pier | Join Transfer — Per Person" with departure_time "PICKUP 7:00 | DEP. 08:45" net_rate 200
+      → "Transfer | Big Boat | Rawai/Naiharn → Sea Angel Pier | Private Van (Max 10 pax) — Per Way" with departure_time "PICKUP 7:00 | DEP. 08:45" net_rate 800
+      → "Transfer | Speed Boat | Rawai/Naiharn → Sea Angel Pier | Join Transfer — Per Person" with departure_time "PICKUP 7:30 | DEP. 09:30" net_rate 200
+      → "Transfer | Speed Boat | Rawai/Naiharn → Sea Angel Pier | Private Van (Max 10 pax) — Per Way" with departure_time "PICKUP 7:30 | DEP. 09:30" net_rate 800
+    Do NOT collapse or merge cells. Every non-empty priced cell = one item.
+
+- Return ONLY the JSON object"""
+
+
+def _extract_stream_ndjson(images, api_key, source_filename):
+    """Yields NDJSON lines for a progress-aware extraction.
+
+    Events:
+      {"event":"start","pages":N,"filename":"..."}
+      {"event":"page","page":i,"total":N}
+      {"event":"items","page":i,"items":[...],"company_name":"..."}
+      {"event":"done","company_name":"...","items":[...]}  # final dedup'd list
+      {"event":"error","error":"..."}
+    """
+    import traceback as _tb
+
+    def _emit(obj):
+        return json.dumps(obj, ensure_ascii=False) + "\n"
+
+    all_items = []
+    company_name = ""
+    try:
+        yield _emit({"event": "start", "pages": len(images), "filename": source_filename})
+
+        if not api_key:
+            # OCR path is non-streaming — run once, emit result
+            result = extract_with_ocr(images)
+            for it in result.get("items", []):
+                all_items.append(it)
+            company_name = result.get("company_name", "")
+            yield _emit({"event": "items", "page": 1, "items": all_items,
+                         "company_name": company_name})
+        else:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
+
+            for page_idx, img in enumerate(images, start=1):
+                yield _emit({"event": "page", "page": page_idx, "total": len(images)})
+                # Reuse the single-page batch path from extract_with_claude by
+                # constructing the same request and parsing the same way.
+                buffer = BytesIO()
+                img.save(buffer, format="JPEG", quality=95)
+                img_data = base64.b64encode(buffer.getvalue()).decode()
+                content = [
+                    {"type": "image_url",
+                     "image_url": {"url": f"data:image/jpeg;base64,{img_data}",
+                                   "detail": "high"}},
+                    {"type": "text", "text": _CLAUDE_USER_PROMPT},
+                ]
+                response = client.chat.completions.create(
+                    model=OPENAI_MODEL,
+                    max_tokens=OPENAI_MAX_TOKENS,
+                    messages=[
+                        {"role": "system", "content": _CLAUDE_SYSTEM_PROMPT},
+                        {"role": "user", "content": content},
+                    ],
+                )
+                text = response.choices[0].message.content.strip()
+                text = re.sub(r"^```(?:json)?\s*\n?", "", text, flags=re.MULTILINE)
+                text = re.sub(r"\n?```\s*$", "", text, flags=re.MULTILINE).strip()
+
+                page_items = []
+                page_company = ""
+                try:
+                    parsed = json.loads(text)
+                    page_items = parsed.get("items", []) or []
+                    page_company = parsed.get("company_name", "") or ""
+                except json.JSONDecodeError:
+                    page_items, page_company = _extract_partial_items(text)
+
+                if page_idx == 1 and not company_name:
+                    company_name = page_company
+
+                all_items.extend(page_items)
+                yield _emit({"event": "items", "page": page_idx,
+                             "items": page_items, "company_name": company_name})
+
+        # Final dedup (same logic as extract_with_claude)
+        seen = set()
+        deduped = []
+        for item in all_items:
+            key = (item.get("product_name", ""), str(item.get("net_rate", "")))
+            if key not in seen:
+                seen.add(key)
+                deduped.append(item)
+
+        yield _emit({"event": "done", "company_name": company_name, "items": deduped})
+
+    except Exception as e:
+        log.error("stream extract failed: %s", e)
+        yield _emit({"event": "error", "error": str(e), "detail": _tb.format_exc()})
+
 
 
 def _extract_partial_items(text):
@@ -209,13 +512,9 @@ def extract_with_claude(images, api_key):
 
     client = OpenAI(api_key=api_key)
 
-    system_prompt = (
-        "You are a data extraction assistant for a travel agency's internal pricing system. "
-        "Your job is to read tour operator rate sheets / price contracts and extract structured pricing data. "
-        "Always respond with valid JSON only — no markdown, no explanations."
-    )
-
-    user_prompt = """Extract ALL pricing data from this tour operator contract/rate sheet image(s).
+    system_prompt = _CLAUDE_SYSTEM_PROMPT
+    user_prompt = _CLAUDE_USER_PROMPT
+    _unused_placeholder_user_prompt = """Extract ALL pricing data from this tour operator contract/rate sheet image(s).
 CRITICAL: You MUST extract EVERY SINGLE ROW that contains a price or rate — do NOT skip, summarize, or truncate any row.
 
 Return ONLY a JSON object in this exact format (no markdown code blocks, no extra text):
@@ -475,6 +774,7 @@ def extract_with_ocr(images):
 # ─── Import to Sheets ─────────────────────────────────────────────────────────
 
 @app.route("/api/import-sheets", methods=["POST"])
+@require_auth
 def import_sheets():
     data = request.json or {}
     items = data.get("items", [])

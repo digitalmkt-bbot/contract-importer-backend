@@ -667,6 +667,12 @@ async function extractData() {
       if (!agg.company_name && result.company_name) agg.company_name = result.company_name;
       agg.items.push(...(result.items || []));
       if (result.warning && !agg.warning) agg.warning = result.warning;
+      if (result.raw_previews && result.raw_previews.length) {
+        agg.raw_previews = (agg.raw_previews || []).concat(result.raw_previews);
+      }
+      if (typeof result.total_before_dedup === 'number') {
+        agg.total_before_dedup = (agg.total_before_dedup || 0) + result.total_before_dedup;
+      }
     } catch (e) {
       hadError = e;
       break;
@@ -691,6 +697,18 @@ async function extractData() {
   });
 
   extractedData = agg;
+
+  // P6 diagnostic: if 0 items came back, surface raw_preview so user can see what GPT saw
+  if ((!agg.items || agg.items.length === 0)) {
+    const preview = (agg.raw_previews || []).join('\n\n').slice(0, 2000) || '(no raw_preview from backend)';
+    const msg = `GPT ตอบกลับแต่ไม่พบรายการราคา (pre-dedup=${agg.total_before_dedup || 0}).\n\n` +
+                `ตัวอย่างคำตอบของ GPT จากไฟล์ของคุณ:\n${preview}\n\n` +
+                `👉 ช่วยส่ง text นี้มาให้ผู้พัฒนาเพื่อปรับ prompt ให้ตรงกับ supplier`;
+    showAlert('extract-error',
+      '<pre style="white-space:pre-wrap;max-height:300px;overflow:auto;font-family:monospace;font-size:12px">' +
+      msg.replace(/</g,'&lt;') + '</pre>', 'error');
+  }
+
   populatePreview(agg);
   goToStep(2);
 }
@@ -716,6 +734,7 @@ async function extractOneFile(apiUrl, file, onEvent) {
     let finalResult = { company_name: '', items: [] };
     let sawAnyEvent = false;
     let errored = null;
+    const rawPreviews = [];
 
     // Upload progress (bytes sent to server)
     xhr.upload.onprogress = (e) => {
@@ -741,8 +760,14 @@ async function extractOneFile(apiUrl, file, onEvent) {
         try { ev = JSON.parse(line); } catch { continue; }
         sawAnyEvent = true;
         onEvent && onEvent(ev);
+        if (ev.event === 'items' && ev.raw_preview) {
+          rawPreviews.push(`หน้า ${ev.page}: ${ev.raw_preview}`);
+        }
         if (ev.event === 'done') {
-          finalResult = { company_name: ev.company_name || '', items: ev.items || [] };
+          finalResult = { company_name: ev.company_name || '', items: ev.items || [],
+                          total_before_dedup: ev.total_before_dedup,
+                          total_after_dedup: ev.total_after_dedup,
+                          raw_previews: rawPreviews };
         } else if (ev.event === 'error') {
           errored = new Error(ev.error || 'Unknown backend error');
         }

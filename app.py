@@ -660,11 +660,16 @@ def _extract_stream_ndjson(images, api_key, source_filename):
                 if page_idx == 1 and not company_name:
                     company_name = page_company
 
+                # P6 diagnostic: always log item count + first product name
+                _sample = (page_items[0].get("product_name","") if page_items else "")
+                log.info(f"[EXTRACT] page {page_idx}/{len(images)}: {len(page_items)} items (sample: {_sample!r})")
+
                 all_items.extend(page_items)
-                # include a small raw preview so frontend/Network tab can show what GPT saw
+                # P6: always include raw_preview + page_items_count so users can diagnose via DevTools
                 yield _emit({"event": "items", "page": page_idx,
                              "items": page_items, "company_name": company_name,
-                             "raw_preview": text[:300] if len(page_items) == 0 else ""})
+                             "raw_preview": text[:400],
+                             "page_items_count": len(page_items)})
 
         # Final dedup (same logic as extract_with_claude)
         seen = set()
@@ -675,7 +680,10 @@ def _extract_stream_ndjson(images, api_key, source_filename):
                 seen.add(key)
                 deduped.append(item)
 
-        yield _emit({"event": "done", "company_name": company_name, "items": deduped})
+        # P6: log + emit pre-dedup totals so UI can show if dedup killed everything
+        log.info(f"[EXTRACT] done: pre-dedup={len(all_items)} post-dedup={len(deduped)} company={company_name!r}")
+        yield _emit({"event": "done", "company_name": company_name, "items": deduped,
+                     "total_before_dedup": len(all_items), "total_after_dedup": len(deduped)})
 
     except Exception as e:
         log.error("stream extract failed: %s", e)

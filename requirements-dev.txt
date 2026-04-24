@@ -1,3 +1,4 @@
 -r requirements.txt
 pytest>=8.0.0
 pytest-cov>=5.0.0
+redis>=5.0.0  # optional: set REDIS_URL to enable distributed rate limiting

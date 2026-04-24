@@ -76,7 +76,9 @@ def test_status_reports_auth_and_rate_limit(monkeypatch):
                          RATE_LIMIT_MAX="7", RATE_LIMIT_WINDOW="120")
     data = c.get("/api/status").get_json()
     assert data["auth_required"] is True
-    assert data["rate_limit"] == {"max": 7, "window_seconds": 120}
+    assert data["rate_limit"]["max"] == 7
+    assert data["rate_limit"]["window_seconds"] == 120
+    assert data["rate_limit"]["backend"] in ("memory", "redis")
 
 
 def test_stream_endpoint_rejects_missing_file(client):

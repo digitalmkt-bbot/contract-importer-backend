@@ -371,7 +371,7 @@ tbody td { padding: 10px 14px; }
           Spreadsheet ID
         </label>
         <input type="text" id="spreadsheet-id"
-               value="1X_gcLo3RROT11Hv9qvhiegoztk9STv4lP2aTq0Ih0Ho"
+               value="" placeholder="ดึงจาก backend อัตโนมัติ หรือกรอกเอง"
                style="width:100%;padding:10px 14px;border:2px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:monospace;outline:none">
       </div>
 
@@ -411,6 +411,31 @@ tbody td { padding: 10px 14px; }
 <div id="toast"></div>
 
 <script>
+
+// ─── Optional Sentry (enabled only when window.SENTRY_DSN or localStorage.sentry_dsn is set) ──
+function initSentry() {
+  try {
+    const dsn = (window.SENTRY_DSN || localStorage.getItem('sentry_dsn') || '').trim();
+    if (!dsn) return;
+    if (document.getElementById('sentry-sdk')) return;
+    const s = document.createElement('script');
+    s.id = 'sentry-sdk';
+    s.src = 'https://browser.sentry-cdn.com/7.119.0/bundle.tracing.min.js';
+    s.crossOrigin = 'anonymous';
+    s.onload = () => {
+      try {
+        if (window.Sentry && Sentry.init) {
+          Sentry.init({ dsn, tracesSampleRate: 0.1, release: 'contract-importer-frontend@p3' });
+          console.log('[sentry] initialised');
+        }
+      } catch (e) { console.warn('[sentry] init failed', e); }
+    };
+    document.head.appendChild(s);
+  } catch (e) { /* ignore */ }
+}
+initSentry();
+
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 const LS_KEY = 'contract_importer_api_url';
 const LS_TOKEN_KEY = 'contract_importer_api_token';
@@ -619,9 +644,14 @@ async function extractData() {
     progressEl.textContent = `📄 (${idx+1}/${selectedFiles.length}) ${f.name} — กำลังเริ่ม…`;
     try {
       const result = await extractOneFile(apiUrl, f, (ev) => {
-        if (ev.event === 'start')      progressEl.textContent = `📄 (${idx+1}/${selectedFiles.length}) ${f.name} — ${ev.pages} หน้า`;
-        else if (ev.event === 'page')  progressEl.textContent = `📄 (${idx+1}/${selectedFiles.length}) ${f.name} — หน้า ${ev.page}/${ev.total}`;
-        else if (ev.event === 'items') progressEl.textContent = `📄 (${idx+1}/${selectedFiles.length}) ${f.name} — หน้า ${ev.page}: พบ ${ev.items.length} รายการ`;
+        const prefix = `📄 (${idx+1}/${selectedFiles.length}) ${f.name}`;
+        if (ev.event === 'upload') {
+          if (ev.pct < 100) progressEl.textContent = `${prefix} — อัปโหลด ${ev.pct}%`;
+          else progressEl.textContent = `${prefix} — อัปโหลดเสร็จ ดึงข้อมูล…`;
+        }
+        else if (ev.event === 'start')      progressEl.textContent = `${prefix} — ${ev.pages} หน้า`;
+        else if (ev.event === 'page')  progressEl.textContent = `${prefix} — หน้า ${ev.page}/${ev.total}`;
+        else if (ev.event === 'items') progressEl.textContent = `${prefix} — หน้า ${ev.page}: พบ ${ev.items.length} รายการ`;
       });
       if (!agg.company_name && result.company_name) agg.company_name = result.company_name;
       agg.items.push(...(result.items || []));
@@ -658,56 +688,97 @@ async function extractOneFile(apiUrl, file, onEvent) {
   const fd = new FormData();
   fd.append('file', file);
 
-  // Prefer NDJSON streaming endpoint; fall back to plain /api/extract if 404
+  // Use XMLHttpRequest so we can track upload progress (fetch has no upload progress).
+  // The streaming endpoint returns NDJSON — we parse incrementally from xhr.responseText.
   const streamUrl = `${apiUrl}/api/extract/stream`;
-  let resp;
-  try {
-    resp = await fetch(streamUrl, { method: 'POST', body: fd, headers: authHeaders() });
-  } catch (e) {
-    throw new Error('เชื่อมต่อ backend ไม่ได้: ' + e.message);
-  }
-  if (resp.status === 404) {
-    // Older backend without streaming endpoint
-    const r2 = await fetch(`${apiUrl}/api/extract`, { method: 'POST', body: fd, headers: authHeaders() });
-    const d2 = await r2.json();
-    if (d2.error) throw new Error(d2.error);
-    return d2;
-  }
-  if (resp.status === 401) throw new Error('API token ผิดหรือยังไม่ได้กรอก');
-  if (resp.status === 429) {
-    const d = await resp.json().catch(()=>({}));
-    throw new Error(d.error || 'Rate limit exceeded');
-  }
-  if (!resp.ok) {
-    const txt = await resp.text();
-    throw new Error('HTTP ' + resp.status + ': ' + txt.slice(0, 200));
-  }
 
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = '';
-  let finalResult = { company_name: '', items: [] };
+  return await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', streamUrl, true);
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let nl;
-    while ((nl = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, nl).trim();
-      buf = buf.slice(nl + 1);
-      if (!line) continue;
-      let ev;
-      try { ev = JSON.parse(line); } catch { continue; }
-      onEvent && onEvent(ev);
-      if (ev.event === 'done') {
-        finalResult = { company_name: ev.company_name || '', items: ev.items || [] };
-      } else if (ev.event === 'error') {
-        throw new Error(ev.error || 'Unknown backend error');
+    // Auth header
+    const auth = authHeaders();
+    for (const k in auth) xhr.setRequestHeader(k, auth[k]);
+
+    let uploadDone = false;
+    let lastIdx = 0;
+    let finalResult = { company_name: '', items: [] };
+    let sawAnyEvent = false;
+    let errored = null;
+
+    // Upload progress (bytes sent to server)
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable || uploadDone) return;
+      const pct = Math.min(99, Math.floor((e.loaded / e.total) * 100));
+      onEvent && onEvent({ event: 'upload', pct, loaded: e.loaded, total: e.total });
+    };
+    xhr.upload.onload = () => {
+      uploadDone = true;
+      onEvent && onEvent({ event: 'upload', pct: 100 });
+    };
+
+    const parseNewChunks = () => {
+      const text = xhr.responseText || '';
+      if (text.length <= lastIdx) return;
+      const chunk = text.slice(lastIdx);
+      lastIdx = text.length;
+      const lines = chunk.split('\n');
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line) continue;
+        let ev;
+        try { ev = JSON.parse(line); } catch { continue; }
+        sawAnyEvent = true;
+        onEvent && onEvent(ev);
+        if (ev.event === 'done') {
+          finalResult = { company_name: ev.company_name || '', items: ev.items || [] };
+        } else if (ev.event === 'error') {
+          errored = new Error(ev.error || 'Unknown backend error');
+        }
       }
-    }
-  }
-  return finalResult;
+    };
+
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState === 3) parseNewChunks();   // LOADING (partial response)
+    };
+
+    xhr.onload = async () => {
+      parseNewChunks();
+      if (xhr.status === 404) {
+        // Older backend without streaming endpoint → fallback to /api/extract
+        try {
+          const r2 = await fetch(`${apiUrl}/api/extract`, { method: 'POST', body: fd, headers: authHeaders() });
+          const d2 = await r2.json();
+          if (d2.error) return reject(new Error(d2.error));
+          return resolve(d2);
+        } catch (e) { return reject(e); }
+      }
+      if (xhr.status === 401) return reject(new Error('API token ผิดหรือยังไม่ได้กรอก'));
+      if (xhr.status === 429) {
+        let msg = 'Rate limit exceeded';
+        try { msg = JSON.parse(xhr.responseText || '{}').error || msg; } catch {}
+        return reject(new Error(msg));
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        return reject(new Error('HTTP ' + xhr.status + ': ' + (xhr.responseText || '').slice(0, 200)));
+      }
+      if (errored) return reject(errored);
+      if (!sawAnyEvent) {
+        // Server returned a normal JSON body (unlikely here, but handle it)
+        try {
+          const d = JSON.parse(xhr.responseText);
+          if (d && d.error) return reject(new Error(d.error));
+          return resolve(d);
+        } catch { return reject(new Error('Empty response from server')); }
+      }
+      resolve(finalResult);
+    };
+
+    xhr.onerror = () => reject(new Error('เชื่อมต่อ backend ไม่ได้'));
+    xhr.ontimeout = () => reject(new Error('Request timeout'));
+
+    xhr.send(fd);
+  });
 }
 
 // ─── Preview & Edit ───────────────────────────────────────────────────────────

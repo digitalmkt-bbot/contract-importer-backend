@@ -66,9 +66,16 @@ def _client_ip(req):
 
 
 def _rate_limit_check(ip):
-    """Return (ok, retry_after_seconds)."""
+    """Return (ok, retry_after_seconds). Uses Redis if REDIS_URL set, else in-memory."""
     if RATE_LIMIT_MAX <= 0:
         return True, 0
+    client = _redis_client()
+    if client is not None:
+        return _rate_limit_check_redis(client, ip)
+    return _rate_limit_check_memory(ip)
+
+
+def _rate_limit_check_memory(ip):
     now = _time.monotonic()
     window_start = now - RATE_LIMIT_WINDOW
     with _rate_lock:
@@ -80,6 +87,121 @@ def _rate_limit_check(ip):
             return False, max(retry, 1)
         bucket.append(now)
         return True, 0
+
+
+def _rate_limit_check_redis(client, ip):
+    """Fixed-window counter using INCR + EXPIRE. Shared across Railway replicas."""
+    key = f"rl:{ip}:{int(_time.time()) // RATE_LIMIT_WINDOW}"
+    try:
+        pipe = client.pipeline()
+        pipe.incr(key, 1)
+        pipe.expire(key, RATE_LIMIT_WINDOW + 1)
+        count, _ = pipe.execute()
+        count = int(count)
+    except Exception as e:
+        log.warning("Redis rate-limit failed, falling back to memory: %s", e)
+        return _rate_limit_check_memory(ip)
+    if count > RATE_LIMIT_MAX:
+        # How long until this window ends?
+        retry = RATE_LIMIT_WINDOW - (int(_time.time()) % RATE_LIMIT_WINDOW)
+        return False, max(retry, 1)
+    return True, 0
+
+
+# ─── Redis (optional) ─────────────────────────────────────────────────────────
+REDIS_URL = os.environ.get("REDIS_URL", "").strip()
+_redis_singleton = None
+_redis_lock = _threading.Lock()
+
+
+def _redis_client():
+    """Return a shared redis.Redis instance, or None if REDIS_URL is unset / install missing."""
+    global _redis_singleton
+    if not REDIS_URL:
+        return None
+    if _redis_singleton is not None:
+        return _redis_singleton
+    with _redis_lock:
+        if _redis_singleton is not None:
+            return _redis_singleton
+        try:
+            import redis as _redis
+        except ImportError:
+            log.warning("REDIS_URL set but `redis` package not installed — using in-memory limiter")
+            return None
+        try:
+            _redis_singleton = _redis.Redis.from_url(
+                REDIS_URL, socket_timeout=2, socket_connect_timeout=2, decode_responses=True,
+            )
+            _redis_singleton.ping()
+            log.info("Redis rate-limit backend connected: %s", REDIS_URL.split("@")[-1])
+        except Exception as e:
+            log.warning("Redis connection failed (%s) — falling back to in-memory", e)
+            _redis_singleton = None
+        return _redis_singleton
+
+
+# ─── Metrics ──────────────────────────────────────────────────────────────────
+METRICS_ENABLED = os.environ.get("METRICS_ENABLED", "true").lower() in ("1", "true", "yes")
+_metrics_lock = _threading.Lock()
+_metrics = {
+    "requests_total": 0,
+    "requests_by_route": {},      # path -> count
+    "requests_by_status": {},     # status_code -> count
+    "extract_files_total": 0,
+    "extract_pages_total": 0,
+    "extract_items_total": 0,
+    "extract_duration_ms": _deque(maxlen=500),  # rolling p50/p95
+    "import_rows_total": 0,
+    "import_rows_overwritten": 0,
+    "rate_limit_hits": 0,
+    "auth_rejects": 0,
+    "errors_total": 0,
+}
+
+
+def _metric_inc(key, n=1):
+    with _metrics_lock:
+        _metrics[key] = _metrics.get(key, 0) + n
+
+
+def _metric_obs(key, v):
+    with _metrics_lock:
+        _metrics[key].append(v)
+
+
+def _metric_bump(bucket_key, label, n=1):
+    with _metrics_lock:
+        b = _metrics.setdefault(bucket_key, {})
+        b[label] = b.get(label, 0) + n
+
+
+def _percentile(seq, p):
+    if not seq:
+        return 0
+    s = sorted(seq)
+    idx = min(len(s) - 1, int(len(s) * p))
+    return s[idx]
+
+
+@app.before_request
+def _metrics_before():
+    request.environ["_metric_start"] = _time.perf_counter()
+
+
+@app.after_request
+def _metrics_after(response):
+    if METRICS_ENABLED:
+        _metric_inc("requests_total")
+        _metric_bump("requests_by_route", request.path)
+        _metric_bump("requests_by_status", str(response.status_code))
+        if response.status_code >= 500:
+            _metric_inc("errors_total")
+        if response.status_code == 429:
+            _metric_inc("rate_limit_hits")
+        if response.status_code == 401:
+            _metric_inc("auth_rejects")
+    return response
 
 
 def require_auth(func):
@@ -147,7 +269,13 @@ def status():
         "max_upload_mb": app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024),
         "cors_origins": _cors_origins if _cors_origins != "*" else "*",
         "auth_required": bool(API_TOKEN),
-        "rate_limit": {"max": RATE_LIMIT_MAX, "window_seconds": RATE_LIMIT_WINDOW},
+        "rate_limit": {
+            "max": RATE_LIMIT_MAX,
+            "window_seconds": RATE_LIMIT_WINDOW,
+            "backend": "redis" if _redis_client() else "memory",
+        },
+        "metrics_enabled": METRICS_ENABLED,
+        "openai_max_retries": OPENAI_MAX_RETRIES,
     })
 
 
@@ -193,6 +321,13 @@ def extract():
             result = extract_with_ocr(images)
 
         log.info(f"[EXTRACT] done: company={result.get('company_name')!r} items={len(result.get('items',[]))}")
+        if METRICS_ENABLED:
+            _metric_inc("extract_files_total")
+            _metric_inc("extract_pages_total", len(images))
+            _metric_inc("extract_items_total", len(result.get("items", [])))
+            start = request.environ.get("_metric_start")
+            if start:
+                _metric_obs("extract_duration_ms", int((_time.perf_counter() - start) * 1000))
         return jsonify(result)
 
     except Exception as e:
@@ -249,6 +384,69 @@ def extract_stream():
         mimetype="application/x-ndjson",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ─── OpenAI retry/backoff ─────────────────────────────────────────────────────
+OPENAI_MAX_RETRIES = int(os.environ.get("OPENAI_MAX_RETRIES", "3"))
+OPENAI_RETRY_INITIAL_WAIT = float(os.environ.get("OPENAI_RETRY_INITIAL_WAIT", "1.5"))
+OPENAI_RETRY_MAX_WAIT = float(os.environ.get("OPENAI_RETRY_MAX_WAIT", "30.0"))
+
+
+def _openai_chat_with_retry(client, **kwargs):
+    """Call client.chat.completions.create with exponential backoff.
+
+    Retries on:
+      - openai.RateLimitError (429)
+      - openai.APITimeoutError
+      - openai.APIConnectionError
+      - openai.InternalServerError (5xx)
+      - openai.APIStatusError with 5xx status
+
+    Raises the last exception after OPENAI_MAX_RETRIES attempts.
+    """
+    import time as _t
+    # Import lazily so the module can be imported even if openai is uninstalled
+    try:
+        from openai import (
+            RateLimitError,
+            APITimeoutError,
+            APIConnectionError,
+            InternalServerError,
+            APIStatusError,
+        )
+        retry_excs = (RateLimitError, APITimeoutError, APIConnectionError, InternalServerError)
+    except ImportError:  # pragma: no cover
+        retry_excs = ()
+        APIStatusError = None  # type: ignore
+
+    attempt = 0
+    wait = max(OPENAI_RETRY_INITIAL_WAIT, 0.1)
+    while True:
+        try:
+            return client.chat.completions.create(**kwargs)
+        except retry_excs as e:
+            attempt += 1
+            if attempt > OPENAI_MAX_RETRIES:
+                log.error("OpenAI retries exhausted after %d attempts: %s", attempt - 1, e)
+                raise
+            log.warning("OpenAI call failed (%s) — retry %d/%d in %.1fs",
+                        type(e).__name__, attempt, OPENAI_MAX_RETRIES, wait)
+            _t.sleep(wait)
+            wait = min(wait * 2, OPENAI_RETRY_MAX_WAIT)
+        except Exception as e:  # APIStatusError & generic
+            if APIStatusError is not None and isinstance(e, APIStatusError):
+                status = getattr(e, "status_code", 0) or 0
+                if 500 <= status < 600:
+                    attempt += 1
+                    if attempt > OPENAI_MAX_RETRIES:
+                        log.error("OpenAI 5xx retries exhausted: %s", e)
+                        raise
+                    log.warning("OpenAI %d — retry %d/%d in %.1fs",
+                                status, attempt, OPENAI_MAX_RETRIES, wait)
+                    _t.sleep(wait)
+                    wait = min(wait * 2, OPENAI_RETRY_MAX_WAIT)
+                    continue
+            raise
 
 
 _CLAUDE_SYSTEM_PROMPT = (
@@ -395,7 +593,7 @@ def _extract_stream_ndjson(images, api_key, source_filename):
                                    "detail": "high"}},
                     {"type": "text", "text": _CLAUDE_USER_PROMPT},
                 ]
-                response = client.chat.completions.create(
+                response = _openai_chat_with_retry(client, 
                     model=OPENAI_MODEL,
                     max_tokens=OPENAI_MAX_TOKENS,
                     messages=[
@@ -626,7 +824,7 @@ Rules:
             })
         content.append({"type": "text", "text": user_prompt})
 
-        response = client.chat.completions.create(
+        response = _openai_chat_with_retry(client, 
             model=OPENAI_MODEL,
             max_tokens=OPENAI_MAX_TOKENS,
             messages=[
@@ -671,7 +869,7 @@ Rules:
                 )
                 try:
                     conversation.append({"role": "user", "content": continuation_prompt})
-                    cont_response = client.chat.completions.create(
+                    cont_response = _openai_chat_with_retry(client, 
                         model=OPENAI_MODEL,
                         max_tokens=OPENAI_MAX_TOKENS,
                         messages=conversation
@@ -917,6 +1115,9 @@ def import_sheets():
             parts.append(f"ลงทับ {overwritten} รายการ")
         summary = " / ".join(parts) if parts else "ไม่มีข้อมูลใหม่"
 
+        if METRICS_ENABLED:
+            _metric_inc("import_rows_total", len(new_rows))
+            _metric_inc("import_rows_overwritten", overwritten)
         return jsonify({
             "success": True,
             "rows_added": len(new_rows),
@@ -930,6 +1131,79 @@ def import_sheets():
 
 
 # ─── Start ────────────────────────────────────────────────────────────────────
+
+@app.route("/metrics")
+def metrics():
+    """Prometheus-style plaintext metrics (optional).
+
+    Protected by the same API_TOKEN as write endpoints when set. Can be scraped
+    by Railway-side Prometheus / Grafana Agent.
+    """
+    # Auth: if API_TOKEN is set, require it here too
+    if API_TOKEN:
+        provided = request.headers.get("X-API-Token") or request.args.get("api_token") or ""
+        if provided != API_TOKEN:
+            return jsonify({"error": "Unauthorized"}), 401
+
+    if not METRICS_ENABLED:
+        return ("metrics disabled\n", 200, {"Content-Type": "text/plain"})
+
+    with _metrics_lock:
+        snap = {
+            "requests_total": _metrics["requests_total"],
+            "requests_by_route": dict(_metrics["requests_by_route"]),
+            "requests_by_status": dict(_metrics["requests_by_status"]),
+            "extract_files_total": _metrics["extract_files_total"],
+            "extract_pages_total": _metrics["extract_pages_total"],
+            "extract_items_total": _metrics["extract_items_total"],
+            "extract_duration_ms_p50": _percentile(_metrics["extract_duration_ms"], 0.50),
+            "extract_duration_ms_p95": _percentile(_metrics["extract_duration_ms"], 0.95),
+            "import_rows_total": _metrics["import_rows_total"],
+            "import_rows_overwritten": _metrics["import_rows_overwritten"],
+            "rate_limit_hits": _metrics["rate_limit_hits"],
+            "auth_rejects": _metrics["auth_rejects"],
+            "errors_total": _metrics["errors_total"],
+        }
+
+    # Accept JSON vs Prometheus text
+    fmt = request.args.get("format", "").lower() or (
+        "prom" if "text/plain" in (request.headers.get("Accept") or "") else "json"
+    )
+    if fmt == "json":
+        return jsonify(snap)
+
+    # Prometheus text format
+    _help = {
+        "requests_total": "Total number of HTTP requests handled",
+        "extract_files_total": "Total number of files processed by /api/extract",
+        "extract_pages_total": "Total pages extracted",
+        "extract_items_total": "Total items extracted",
+        "extract_duration_ms_p50": "Extract duration p50 in milliseconds",
+        "extract_duration_ms_p95": "Extract duration p95 in milliseconds",
+        "import_rows_total": "Total rows imported to Google Sheets",
+        "import_rows_overwritten": "Total rows overwritten on conflict",
+        "rate_limit_hits": "Total requests rejected by the rate limiter",
+        "auth_rejects": "Total requests rejected for invalid API token",
+        "errors_total": "Total HTTP 5xx responses",
+    }
+    lines = []
+    for k, v in snap.items():
+        if isinstance(v, dict):
+            field = "route" if "route" in k else "status"
+            metric = f"contract_importer_{k.replace('_by_' + field, '')}_total"
+            lines.append(f"# HELP {metric} Labeled counter by {field}")
+            lines.append(f"# TYPE {metric} counter")
+            for label, count in v.items():
+                safe_label = label.replace('"', '\\"')
+                lines.append(f'{metric}{{{field}="{safe_label}"}} {count}')
+        else:
+            metric = f"contract_importer_{k}"
+            help_text = _help.get(k, k)
+            lines.append(f"# HELP {metric} {help_text}")
+            lines.append(f"# TYPE {metric} counter")
+            lines.append(f"{metric} {v}")
+    return ("\n".join(lines) + "\n", 200, {"Content-Type": "text/plain; version=0.0.4"})
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

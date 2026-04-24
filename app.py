@@ -455,8 +455,8 @@ _CLAUDE_SYSTEM_PROMPT = (
     "Always respond with valid JSON only — no markdown, no explanations."
 )
 
-_CLAUDE_USER_PROMPT = """Extract ALL pricing data from this tour operator contract/rate sheet image(s).
-CRITICAL: You MUST extract EVERY SINGLE ROW that contains a price or rate — do NOT skip, summarize, or truncate any row.
+_CLAUDE_USER_PROMPT = """Extract ALL pricing data from this document. It is most likely a tour operator rate sheet, but may also be a hotel contract, transfer price list, restaurant menu, activity list, or any supplier pricing document.
+CRITICAL: You MUST extract EVERY SINGLE ROW/ENTRY that contains a price, rate, cost, or numeric amount — do NOT skip, summarize, or truncate any row. If the document is NOT a traditional table, STILL extract any product/service name paired with any numeric amount you can find (from paragraphs, bullet points, price lists, text blocks, menus). NEVER return an empty items array if the page contains ANY product + price pairing — use your best judgement to pair names with numbers.
 
 Return ONLY a JSON object in this exact format (no markdown code blocks, no extra text):
 {
@@ -614,12 +614,57 @@ def _extract_stream_ndjson(images, api_key, source_filename):
                 except json.JSONDecodeError:
                     page_items, page_company = _extract_partial_items(text)
 
+                # FALLBACK: if first pass returned 0 items, retry once with a
+                # stricter "find-any-price" prompt. Helps when PDF is not a
+                # traditional table (e.g. paragraph price list, menu, etc.)
+                if len(page_items) == 0:
+                    log.warning(f"[EXTRACT] page {page_idx} returned 0 items — trying fallback prompt. Raw preview: {text[:400]!r}")
+                    try:
+                        fb_user = (
+                            "This document was extracted with 0 items on the first pass but it may contain pricing data in a non-standard format. "
+                            "Scan EVERYTHING visible on the page and return any product/service name paired with any THB amount you can find. "
+                            "Include hotel room rates, menu prices, activity costs, transfer fees, package prices, or anything else with a numeric amount. "
+                            "Return ONLY JSON: {\"company_name\":\"...\",\"items\":[{\"product_name\":\"...\",\"departure_time\":\"\",\"net_rate\":0,\"selling_rate\":0,\"notes\":\"\"}]}"
+                        )
+                        fb_resp = _openai_chat_with_retry(client,
+                            model=OPENAI_MODEL,
+                            max_tokens=OPENAI_MAX_TOKENS,
+                            messages=[
+                                {"role": "system", "content": _CLAUDE_SYSTEM_PROMPT},
+                                {"role": "user", "content": [
+                                    {"type": "image_url",
+                                     "image_url": {"url": f"data:image/jpeg;base64,{img_data}",
+                                                   "detail": "high"}},
+                                    {"type": "text", "text": fb_user},
+                                ]},
+                            ],
+                        )
+                        fb_text = fb_resp.choices[0].message.content.strip()
+                        fb_text = re.sub(r"^```(?:json)?\s*\n?", "", fb_text, flags=re.MULTILINE)
+                        fb_text = re.sub(r"\n?```\s*$", "", fb_text, flags=re.MULTILINE).strip()
+                        try:
+                            fb_parsed = json.loads(fb_text)
+                            page_items = fb_parsed.get("items", []) or []
+                            if not page_company:
+                                page_company = fb_parsed.get("company_name", "") or ""
+                            log.info(f"[EXTRACT] fallback rescued {len(page_items)} items on page {page_idx}")
+                        except json.JSONDecodeError:
+                            fb_items, fb_company = _extract_partial_items(fb_text)
+                            page_items = fb_items
+                            if not page_company:
+                                page_company = fb_company
+                            log.info(f"[EXTRACT] fallback partial-extract got {len(page_items)} items on page {page_idx}")
+                    except Exception as fe:
+                        log.error(f"[EXTRACT] fallback failed: {fe}")
+
                 if page_idx == 1 and not company_name:
                     company_name = page_company
 
                 all_items.extend(page_items)
+                # include a small raw preview so frontend/Network tab can show what GPT saw
                 yield _emit({"event": "items", "page": page_idx,
-                             "items": page_items, "company_name": company_name})
+                             "items": page_items, "company_name": company_name,
+                             "raw_preview": text[:300] if len(page_items) == 0 else ""})
 
         # Final dedup (same logic as extract_with_claude)
         seen = set()

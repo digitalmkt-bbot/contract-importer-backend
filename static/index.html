@@ -441,7 +441,16 @@ const LS_KEY = 'contract_importer_api_url';
 const LS_TOKEN_KEY = 'contract_importer_api_token';
 
 function getApiUrl() {
-  return (document.getElementById('api-url').value || '').replace(/\/$/, '');
+  const raw = (document.getElementById('api-url').value || '').trim().replace(/\/$/, '');
+  // Empty → fall back to same-origin (the page that served this HTML)
+  if (!raw) {
+    // Only use same-origin when served over http/https (not file://)
+    if (location.protocol === 'http:' || location.protocol === 'https:') return location.origin;
+    return '';
+  }
+  // Auto-prepend https:// if user forgot the protocol
+  if (!/^https?:\/\//i.test(raw)) return 'https://' + raw;
+  return raw;
 }
 
 function getApiToken() {
@@ -470,7 +479,9 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('api-url').value = saved;
   const savedTok = localStorage.getItem(LS_TOKEN_KEY) || '';
   document.getElementById('api-token').value = savedTok;
-  if (saved) checkStatus();
+  // Auto-probe: if URL saved OR we can use same-origin (served over http(s))
+  const canSameOrigin = (location.protocol === 'http:' || location.protocol === 'https:');
+  if (saved || canSameOrigin) checkStatus();
   updateSheetLink();
 });
 
